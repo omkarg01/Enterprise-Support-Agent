@@ -8,11 +8,7 @@ failure grid with step-9 effects, and a decision-log summary.
 Only the page `page:lld_user_app` is replaced; every other page is left untouched.
 """
 
-import json
-import math
-import os
-
-from generate_lld_page import _Idx, arrow, box, frame
+from lld_layout import PageBuilder, est_h, write_page
 
 PID = "page:lld_user_app"
 TOTAL_W = 2600
@@ -20,44 +16,12 @@ START_X = 80
 GAP = 30
 
 
-def est_h(text, w, line_h=25, pad=26):
-    """Estimate box height for size 's' sans text so labels don't overflow."""
-    usable = max(w - 30, 50)
-    lines = sum(max(1, math.ceil(len(line) * 8.8 / usable)) for line in text.split("\n"))
-    return pad + lines * line_h
-
-
 def build_records():
-    idx = _Idx(500)
-    R = []
-    b = {}
-
-    def add(nid, text, x, y, w, h, color, fill="semi", ext=False, **kw):
-        b[nid] = (x, y, w, h)
-        if ext:
-            R.append(frame(f"shape:ua_{nid}", text, x, y, w, h, "grey", idx, page_id=PID))
-        else:
-            R.append(box(f"shape:ua_{nid}", text, x, y, w, h, color, fill, idx, page_id=PID, **kw))
-
-    def anchor(nid, side):
-        x, y, w, h = b[nid]
-        return {"R": (x + w, y + h / 2), "L": (x, y + h / 2),
-                "T": (x + w / 2, y), "B": (x + w / 2, y + h)}[side]
-
-    def connect(aid, a, z, fa="R", ta="L", label="", color="black", bend=0, size="s"):
-        x1, y1 = anchor(a, fa)
-        x2, y2 = anchor(z, ta)
-        R.append(arrow(f"shape:ua_a_{aid}", x1, y1, x2, y2, label, idx,
-                       bend=bend, color=color, size=size, page_id=PID))
+    pb = PageBuilder(PID, "ua")
+    add, connect = pb.add, pb.connect
 
     def row(y, items, color_default, x0=START_X, width=TOTAL_W, gap=GAP):
-        """Lay out (nid, text, color|None, ext) boxes in one row with a shared height."""
-        n = len(items)
-        w = (width - (n - 1) * gap) / n
-        h = max(est_h(t, w) for _, t, _, _ in items)
-        for i, (nid, text, color, ext) in enumerate(items):
-            add(nid, text, x0 + i * (w + gap), y, w, h, color or color_default, ext=ext)
-        return h
+        return pb.row(y, items, color_default, x0, width, gap)
 
     # ── Title ────────────────────────────────────────────────────────────
     add("title",
@@ -107,8 +71,8 @@ def build_records():
     ], "light-blue", x0=inner_x, width=inner_w, gap=70)
 
     fa_h = (row2_y + h2 + 25) - fa_y
-    R.insert(0, frame("shape:ua_f_flowA", "FLOW A · SYNCHRONOUS WEB TURN (Sarah @ acme-corp)",
-                      START_X, fa_y, TOTAL_W, fa_h, "blue", idx, page_id=PID))
+    pb.frame_behind("flowA", "FLOW A · SYNCHRONOUS WEB TURN (Sarah @ acme-corp)",
+                    START_X, fa_y, TOTAL_W, fa_h, "blue")
 
     for i, (s, t) in enumerate([("a1", "a2"), ("a2", "a3"), ("a3", "a4"), ("a4", "a5"), ("a5", "a6")]):
         connect(f"in{i}", s, t, color="blue")
@@ -138,10 +102,10 @@ def build_records():
     ], "light-blue", x0=fc_x + 25, width=fc_w - 50, gap=25)
 
     fbc_h = max(hb, hc) + 70
-    R.insert(0, frame("shape:ua_f_flowB", "FLOW B · DEFERRED DELIVERY (HITL resolves while user is away)",
-                      START_X, y, fb_w, fbc_h, "green", idx, page_id=PID))
-    R.insert(0, frame("shape:ua_f_flowC", "FLOW C · SESSION LIFECYCLE (independent scenarios)",
-                      fc_x, y, fc_w, fbc_h, "violet", idx, page_id=PID))
+    pb.frame_behind("flowB", "FLOW B · DEFERRED DELIVERY (HITL resolves while user is away)",
+                    START_X, y, fb_w, fbc_h, "green")
+    pb.frame_behind("flowC", "FLOW C · SESSION LIFECYCLE (independent scenarios)",
+                    fc_x, y, fc_w, fbc_h, "violet")
 
     # ── Sub-component cards ─────────────────────────────────────────────
     y += fbc_h + 40
@@ -217,35 +181,14 @@ def build_records():
                 "KK3 revocation · KU4 inbox never read · UK5 shared devices · UU1 replayed cards\n\n"
                 "Full reasoning: checkpoint.md §5", "yellow", False),
     ], "green", x0=START_X + 20, width=TOTAL_W - 40, gap=GAP)
-    R.insert(0, frame("shape:ua_f_declog", "DECISION LOG SUMMARY (checkpoint.md §5.6 – §5.10)",
-                      START_X, dl_y, TOTAL_W, hd + 60, "green", idx, page_id=PID))
+    pb.frame_behind("declog", "DECISION LOG SUMMARY (checkpoint.md §5.6 – §5.10)",
+                    START_X, dl_y, TOTAL_W, hd + 60, "green")
 
-    # Frames were inserted at the front after being built; re-index so z-order follows list order.
-    order = _Idx(500)
-    for s in R:
-        s["index"] = order()
-
-    page = {"typeName": "page", "id": PID, "name": "LLD - [1] User & Application", "index": "a3", "meta": {}}
-    camera = {"typeName": "camera", "id": f"camera:{PID}", "x": 0, "y": 0, "z": 0.4, "meta": {}}
-    return page, camera, R
+    return pb.records("LLD - [1] User & Application", "a3")
 
 
 def main():
-    target = "architecture.tldr"
-    if not os.path.exists(target):
-        print(f"Error: {target} not found!")
-        return
-    with open(target, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    kept = [r for r in data.get("records", [])
-            if r.get("id") not in (PID, f"camera:{PID}") and r.get("parentId") != PID]
-    page, camera, shapes = build_records()
-    data["records"] = kept + [page, camera] + shapes
-
-    with open(target, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    print(f"Generated page '{page['name']}' with {len(shapes)} shapes in {target}.")
+    write_page(*build_records())
 
 
 if __name__ == "__main__":

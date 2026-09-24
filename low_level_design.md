@@ -71,7 +71,8 @@ The central runtime engine responsible for parsing incoming queries, determining
 
 #### C. Candidate Frameworks & Tooling Stack
 * **Workflow & State Graph:** **LangGraph** (Native Python state-graph with conditional branching and checkpointing) OR **Temporal.io** (Industrial durable execution platform for multi-day human-in-the-loop workflows with zero data loss).
-* **Intent & Extraction:** **Instructor** (Pydantic-enforced structured LLM extraction) / **Outlines** (Constrained regex/grammar-guided generation).
+* **Decision Points (intent, urgency, transition guards, tool selection):** **Jev** (TypeSafe System One model; `typesafe-sdk`). Typed `Choice` / `Score` / `Noul` answers with confidence; no text generation or free-text parsing. *Selected: checkpoint.md ADP-05.*
+* **Open-Value Extraction:** **Instructor** (Pydantic-enforced structured LLM extraction) / **Outlines** (Constrained regex/grammar-guided generation), for entity values Jev can't pick from a closed set.
 * **Prompt Management:** **Langfuse Prompt Management** / **Agenta** / **Promptfoo** (Versioned prompt templates with Git-like tags and automated evaluation).
 * **Context Assembly:** **LlamaIndex Context Optimizer** / **Semantic Kernel Context Pipeline**.
 
@@ -80,6 +81,10 @@ The central runtime engine responsible for parsing incoming queries, determining
   * *LangGraph:* Faster developer velocity, native Python LLM primitive integration, lightweight state checkpointing in PostgreSQL. Best for fast (<60s) synchronous reasoning sessions.
   * *Temporal:* Industrial-grade replay durability, handles process crashes mid-workflow, guarantees execution across days/weeks for human-in-the-loop approvals.
   * *Hybrid Recommendation:* Use **LangGraph** for Tier-2 cognitive reasoning turns, wrapped inside a **Temporal Workflow** for durable long-running ticket lifecycles requiring human escalations.
+* **Decision model: Jev vs. LLM classifier (Instructor):**
+  * *Jev:* Calibrated probabilities and a confidence value per answer, many questions in one parallel call, no output parsing. Can't generate text, weak at numbers and dates, susceptible to injection.
+  * *LLM classifier:* Flexible, but its scores are uncalibrated and it can return malformed output.
+  * *Decision (ADP-05):* **Jev** at the triage gate, FSM transition guards and tool selection, with LangGraph edges still in code. Amounts, dates and SLA checks stay in code.
 
 ---
 
@@ -376,7 +381,7 @@ Coordinates specialized autonomous sub-agents with dedicated system prompts, dis
 | **[ 2 ] Gateway** | Auth, JWT, Tenant Permissions | Kong Gateway, Auth0/Okta SDK, Traefik | Edge gateway validation vs application-level middleware auth |
 | **[ 3 ] Reliability** | Rate Limiting, Circuit Breakers, Debounce | Redis Token Bucket, Envoy, PyBreaker | Strict 429 drops vs graceful queued degraded responses |
 | **[ 4 ] Input Safety** | Injection Defense, PII Masking | Microsoft Presidio, NeMo Guardrails, Llama Guard | Regex speed vs deep classifier latency and false-positive rates |
-| **[ 5 ] Orchestrator** | Intent, Planning, State Machine, Context | LangGraph, Temporal.io, Instructor, Langfuse | Python-native speed (LangGraph) vs industrial replay durability (Temporal) |
+| **[ 5 ] Orchestrator** | Intent, Planning, State Machine, Context | LangGraph, Temporal.io, Jev (TypeSafe), Langfuse | Python-native speed (LangGraph) vs industrial replay durability (Temporal) |
 | **[ 6 ] Memory** | Working Scratchpad, Session, Long-Term Profile | Mem0, Zep, Redis Stack, PostgreSQL | Full conversation dump vs extracted atomic semantic fact graph |
 | **[ 7 ] RAG Retrieval** | Chunking, Ingestion, Hybrid Search, Reranking | Qdrant, LlamaIndex, Cohere Rerank, BGE | Dense-only search vs hybrid dense+BM25 with cross-encoder rerank |
 | **[Cap 12] Cost Router** | Semantic Cache, Model Tier Routing, Budgets | LiteLLM Proxy, GPTCache, Portkey.ai | Aggressive caching vs fresh dynamic reasoning; SLM routing risks |

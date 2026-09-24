@@ -216,13 +216,13 @@ def build():
 
     # 1A: User Channels (Col 1)
     R.append(box("shape:n_channels",
-                 "[ 1 ] User Channels & Ingress\nWeb · Mobile App · Chat SDK\nSlack · Teams · Email Ingress",
+                 "[ 1 ] User Channels & Ingress\nWeb widget only (v1) · more later\n→ page: LLD - [1] User & Application",
                  COL1, T1_NODE_Y, NW, NH, "blue", "semi", idx))
     reg("n_channels", COL1, T1_NODE_Y)
 
     # 1B: API Gateway & Identity (Col 2)
     R.append(box("shape:n_gateway",
-                 "[ 2 ] API Gateway & Identity\nJWT / OAuth2 · Session Mgmt\nRouting · Tenant Permissions",
+                 "[ 2 ] API Gateway & Identity\nPOST 202 · Tiers T0/T1/T2 · Sessions\n→ page: LLD - [1] User & Application",
                  COL2, T1_NODE_Y, NW, NH, "blue", "semi", idx))
     reg("n_gateway", COL2, T1_NODE_Y)
 
@@ -261,7 +261,7 @@ def build():
     reg("n_memory", COL2, T2_ROW1_Y)
 
     R.append(box("shape:n_rag",
-                 "[ 7 ] Knowledge & RAG Retrieval\nHybrid Vector + BM25 Search\nDocument Reranking & Chunking",
+                 "[ 7 ] Knowledge & RAG Retrieval\nBM25 + dense · LLM rerank · top-10\n→ see LLD - [2] Knowledge & Retrieval",
                  COL2, T2_ROW2_Y, NW, NH, "light-blue", "semi", idx))
     reg("n_rag", COL2, T2_ROW2_Y)
 
@@ -360,7 +360,7 @@ def build():
 
     # 3A: Response Delivery Engine (Col 2)
     R.append(box("shape:n_delivery",
-                 "[ 13 ] Response Delivery Engine\nSSE / WebSocket Streaming\nState Commit & Session Sync",
+                 "[ 13 ] Response Delivery Engine\nTyped events · resumable SSE · inbox\n→ page: LLD - [1] User & Application",
                  COL2, T3_NODE_Y, NW, NH, "green", "semi", idx))
     reg("n_delivery", COL2, T3_NODE_Y)
 

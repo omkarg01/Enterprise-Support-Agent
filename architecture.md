@@ -144,7 +144,7 @@ Here is the flow of data from start to finish:
 ### Step 3: Agent Orchestrator (The Runtime Brain)
 * **Components:** Agent Harness, Intent Understanding, Planning & Decision Making, Workflow State (`2. Agent Orchestration & Runtime`).
 * **Action:**
-  1. Identifies the user's intent (e.g., informational query, account lookup, transaction execution, troubleshooting).
+  1. Identifies the user's intent (e.g., informational query, account lookup, transaction execution, troubleshooting) with one **Jev** decision request (intent, urgency, missing details, each with a confidence). Low confidence leads to a clarifying question or a human.
   2. Initiates the workflow state machine and decision plan.
   3. Formulates queries for context enrichment.
 

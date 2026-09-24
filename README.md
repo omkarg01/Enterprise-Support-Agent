@@ -2,6 +2,7 @@
 
 [![Architecture](https://img.shields.io/badge/Architecture-Enterprise%20Multi--Agent-blue.svg)](#system-architecture)
 [![Statechart](https://img.shields.io/badge/Orchestrator-LangGraph%20%2B%20Temporal-orange.svg)](#key-architectural-decisions)
+[![Decisions](https://img.shields.io/badge/Decision%20Model-Jev%20(TypeSafe)-purple.svg)](#key-architectural-decisions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 
 An enterprise-grade, high-reliability architecture and low-level engineering specification for an autonomous **Enterprise AI Customer Support Agent**. Built to handle mission-critical customer workflows, multi-day ticket lifecycles, regulatory compliance, context budget optimization, and human-in-the-loop (HITL) escalations.
@@ -93,6 +94,7 @@ flowchart LR
 | **ADP-02** | Agent Runtime | Workflow Durability | **Two-Tier Hybrid** (Temporal.io outer saga for multi-day durability & HITL + LangGraph inner cognitive loop) |
 | **ADP-03** | Agent Runtime | Context Engineering | **Tripartite Structured Slot Allocator** (System 15%, Profile 15%, RAG 35%, Chat 25%, Scratchpad 10%) |
 | **ADP-04** | Agent Runtime | Error Recovery | **Dual-Process Circuit Breaker** (Max 2 Reflexion trials, immediate HITL tripwire on persistence) |
+| **ADP-05** | Agent Runtime | Decision Model | **Jev (TypeSafe) at decision points** (triage, FSM transition guards, tool selection; LangGraph stays the runner, code owns control flow) |
 
 ---
 
@@ -122,7 +124,8 @@ src/
 ├── core/
 │   ├── orchestrator/
 │   │   ├── statechart.py        # LangGraph StateGraph, Node reducers, FSM edges
-│   │   ├── triage.py            # Acuity Classifier & Intent routing
+│   │   ├── triage.py            # Acuity & Intent routing (Jev Choice/Score/Noul)
+│   │   ├── decisions.py         # Jev question sets: triage, transition guards, tool selection
 │   │   └── planner.py           # Layer 2 Deliberative ReAct engine
 │   ├── context/
 │   │   ├── assembler.py         # Tripartite slot budget allocator & token packing

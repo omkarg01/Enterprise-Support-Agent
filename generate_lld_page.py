@@ -198,9 +198,9 @@ def build_abstract_lld_records():
 
     reg("c1_triage", C1_X, Y_FLOW + 270, C1_W, 170)
     R.append(box("shape:c1_triage",
-                 "2. Acuity & Intent Triage Gate\n"
-                 "• Classifies intent, entities & urgency\n"
-                 "• Deterministic Routing Decision:\n"
+                 "2. Acuity & Intent Triage Gate (Jev, ADP-05)\n"
+                 "• One Jev call: intent · urgency · missing info\n"
+                 "• Routed in code by answer + confidence:\n"
                  "  ► Level 1/2: Standard SOP → System 1\n"
                  "  ► Level 4/5: Complex Issue → System 2\n"
                  "  ► Level 3: Ambiguous Intent → Clarify",
@@ -218,7 +218,7 @@ def build_abstract_lld_records():
     R.append(box("shape:c2_fsm",
                  "System 1: Deterministic Statechart (FSM)\n"
                  "• Fast LangGraph state machine for verified SOPs\n"
-                 "• Strict parameter validation & predictable execution\n"
+                 "• Jev yes/no guards on edges · amounts & dates in code\n"
                  "• <300ms velocity · Zero generative hallucinations",
                  C2_X, Y_FLOW + 45, C2_W, 140, "green", "semi", idx, size="s", page_id=pid))
 
@@ -227,8 +227,8 @@ def build_abstract_lld_records():
     R.append(box("shape:c2_react",
                  "System 2: Deliberative ReAct & Replanner\n"
                  "• Multi-step Plan-and-Solve reasoning DAG\n"
-                 "• Diagnostics for complex multi-system outages\n"
-                 "• Reflexion verbal self-critique (max 2 retries)\n"
+                 "• Jev picks the tool · LLM writes the plan\n"
+                 "• Reflexion critique (max 2) · Jev checks step success\n"
                  "• Anti-loop tripwire: Stops if steps > 4",
                  C2_X, Y_FLOW + 215, C2_W, 160, "orange", "semi", idx, size="s", page_id=pid))
 
@@ -323,7 +323,7 @@ def build_abstract_lld_records():
                  "Q1 · KNOWN KNOWNS (Deterministic Contract Breaches)\n"
                  "• Token Overflow → Mitigated by strict Baddeley slot budget ceilings\n"
                  "• Illegal State Jump → Mitigated by typed LangGraph Pydantic StateGraph edges\n"
-                 "• Tool Schema Rejection → Mitigated by Instructor grammar masks & validation\n"
+                 "• Tool Schema Rejection → Mitigated by Jev typed tool choice & schema validation\n"
                  "• Recursion Depth Ceiling → Mitigated by anti-loop StepCeilingGuard (N ≤ 4)",
                  Q_COL1_X, Q_Y + 55, Q_HALF_W, Q_BOX_H, "light-blue", "semi", idx, size="s", page_id=pid))
 
