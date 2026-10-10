@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 2,
+  "project": "Enterprise-Support-Agent",
+  "revision": "14071fa425ca938c96f7d21f2bb74c95796dd45c",
+  "sourceHash": "2f5f504d035cf61333d5d1272d77f2fc26515d87634ea971c427f940ef9f2223",
+  "provenance": {
+    "tool": "genesis-graphizer",
+    "method": "static-analysis",
+    "confidenceScale": "0..1"
+  },
+  "nodes": [
+    {
+      "id": "file:scripts/adp_registry.py",
+      "type": "file",
+      "label": "scripts/adp_registry.py",
+      "path": "scripts/adp_registry.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "b06e1c64fa1cd779e472ef5784b3a195e9d8d3f36a698a1d304c6eea28e67032"
+    },
+    {
+      "id": "file:scripts/generate_adp_index.py",
+      "type": "file",
+      "label": "scripts/generate_adp_index.py",
+      "path": "scripts/generate_adp_index.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "37d0d92b2ba18e38397c50db876c69e0129e14fdc62ae92665f9b50a4311c2bd"
+    },
+    {
+      "id": "file:scripts/generate_architecture_tldr.py",
+      "type": "file",
+      "label": "scripts/generate_architecture_tldr.py",
+      "path": "scripts/generate_architecture_tldr.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "bfcdcb0da78c8d8e0223b2a6430d93d635d239a08786ef834f35d7f461df10e2"
+    },
+    {
+      "id": "file:scripts/generate_lld_cost.py",
+      "type": "file",
+      "label": "scripts/generate_lld_cost.py",
+      "path": "scripts/generate_lld_cost.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "022688447a9aaf336727876e4e0aa990423e2bfbee437a1c74752f998053c40c"
+    },
+    {
+      "id": "file:scripts/generate_lld_data.py",
+      "type": "file",
+      "label": "scripts/generate_lld_data.py",
+      "path": "scripts/generate_lld_data.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "e422d622021dfd4c67a5fab967b21a34e7b047411b8301398a969971f031408e"
+    },
+    {
+      "id": "file:scripts/generate_lld_deployment.py",
+      "type": "file",
+      "label": "scripts/generate_lld_deployment.py",
+      "path": "scripts/generate_lld_deployment.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "7e767b771fd424e4f83ac8b51b115ad2c9e13721625f7c089805c1a702b0b86c"
+    },
+    {
+      "id": "file:scripts/generate_lld_eval.py",
+      "type": "file",
+      "label": "scripts/generate_lld_eval.py",
+      "path": "scripts/generate_lld_eval.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "850d516d9f7dd711d7d2772fac961738c02ffa3490177d62f93a1abc7014e087"
+    },
+    {
+      "id": "file:scripts/generate_lld_hitl.py",
+      "type": "file",
+      "label": "scripts/generate_lld_hitl.py",
+      "path": "scripts/generate_lld_hitl.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "b9aeae146da06feccbbee3e36ca7d88d26670dbea93a2cc369cb203df53d26c7"
+    },
+    {
+      "id": "file:scripts/generate_lld_improvement.py",
+      "type": "file",
+      "label": "scripts/generate_lld_improvement.py",
+      "path": "scripts/generate_lld_improvement.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "03edaa1e367ddb89a72a03d2e9b3be8db50ae6f4f1777eaabac5d4ee7349b42d"
+    },
+    {
+      "id": "file:scripts/generate_lld_knowledge.py",
+      "type": "file",
+      "label": "scripts/generate_lld_knowledge.py",
+      "path": "scripts/generate_lld_knowledge.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "6836752c275dd6dd46ef4641d0fcdf32e86617f08c9fd03efc8374c355420c7f"
+    },
+    {
+      "id": "file:scripts/generate_lld_memory.py",
+      "type": "file",
+      "label": "scripts/generate_lld_memory.py",
+      "path": "scripts/generate_lld_memory.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "c5f87e9705257c771838af3e1e0d1dbad5662e43f633c84a400c489b303da7e9"
+    },
+    {
+      "id": "file:scripts/generate_lld_multiagent.py",
+      "type": "file",
+      "label": "scripts/generate_lld_multiagent.py",
+      "path": "scripts/generate_lld_multiagent.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "9059baeae812b505ef6da8df8cac6a607c53155d00718998b9cf7e12fefd10bb"
+    },
+    {
+      "id": "file:scripts/generate_lld_observability.py",
+      "type": "file",
+      "label": "scripts/generate_lld_observability.py",
+      "path": "scripts/generate_lld_observability.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "79f02f2dca7f69fad83fab5f168f515678e8979e1307bb898a07c1755ed256af"
+    },
+    {
+      "id": "file:scripts/generate_lld_page.py",
+      "type": "file",
+      "label": "scripts/generate_lld_page.py",
+      "path": "scripts/generate_lld_page.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "acb4f9da046a317e097bb6047a27a7c1403fe5d187119ed2b58abc9c4a7a7e9e"
+    },
+    {
+      "id": "file:scripts/generate_lld_reliability.py",
+      "type": "file",
+      "label": "scripts/generate_lld_reliability.py",
+      "path": "scripts/generate_lld_reliability.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "181eca128c9c9bdd8f1468b7bf6091bc23371179b3ec88bbd6a8a693121002b3"
+    },
+    {
+      "id": "file:scripts/generate_lld_safety.py",
+      "type": "file",
+      "label": "scripts/generate_lld_safety.py",
+      "path": "scripts/generate_lld_safety.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "e3fafc4003ca53b2cb8bc826b9cd1a6649365c034cf8fa3333947d83be3f0b99"
+    },
+    {
+      "id": "file:scripts/generate_lld_testing.py",
+      "type": "file",
+      "label": "scripts/generate_lld_testing.py",
+      "path": "scripts/generate_lld_testing.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "fa73d52253283bbf8c79cf049c75fbd1a1a4d6012f3946c87ac3c88073c5c86b"
+    },
+    {
+      "id": "file:scripts/generate_lld_tools.py",
+      "type": "file",
+      "label": "scripts/generate_lld_tools.py",
+      "path": "scripts/generate_lld_tools.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "e64baed9eedb092c1a8b9fd1c706a20cb660ba834ab1079eadf83d960826278a"
+    },
+    {
+      "id": "file:scripts/generate_lld_user_app.py",
+      "type": "file",
+      "label": "scripts/generate_lld_user_app.py",
+      "path": "scripts/generate_lld_user_app.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "f6764f8fe3a26ca25ed09065e608e139c44731596f15dfeb0af4e9ae98269670"
+    },
+    {
+      "id": "file:scripts/lld_layout.py",
+      "type": "file",
+      "label": "scripts/lld_layout.py",
+      "path": "scripts/lld_layout.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "8d6380e4398919239c80a558febc9ae2dd39b8cc71e0f4c451731b98cf2176b8"
+    },
+    {
+      "id": "file:scripts/organize_adps.py",
+      "type": "file",
+      "label": "scripts/organize_adps.py",
+      "path": "scripts/organize_adps.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "13083ab599fcb7493a97d804c2177166848b0cc80cfc867f69288abfaa27d559"
+    },
+    {
+      "id": "file:src/core/__init__.py",
+      "type": "file",
+      "label": "src/core/__init__.py",
+      "path": "src/core/__init__.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "49f1ec8d3e440c56a225d49fffb04f4078e35c34e574fec4e2bb5bc49e00ca32"
+    },
+    {
+      "id": "file:src/core/release_paths.py",
+      "type": "file",
+      "label": "src/core/release_paths.py",
+      "path": "src/core/release_paths.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "e680f95474218dfcb1d27c892d4ed77ad5561c44e7d25bd5b6b957252b805ce7"
+    },
+    {
+      "id": "file:src/data/__init__.py",
+      "type": "file",
+      "label": "src/data/__init__.py",
+      "path": "src/data/__init__.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "1f971a60aa87f887e39ab49cc1f1e68db12f83e4990f2677e6f3f21ec81f735b"
+    },
+    {
+      "id": "file:src/data/migrate.py",
+      "type": "file",
+      "label": "src/data/migrate.py",
+      "path": "src/data/migrate.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "895698fd74f4e5d59f11352d9ca36b855f6f72ae2847b16e8a30cbf9bca51e27"
+    },
+    {
+      "id": "file:tests/data/test_schema.py",
+      "type": "file",
+      "label": "tests/data/test_schema.py",
+      "path": "tests/data/test_schema.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "64742858303f1534e3515103f0f362c1eac87979bad859effd4ee729f42d7f69"
+    },
+    {
+      "id": "file:tests/deploy/test_compose.py",
+      "type": "file",
+      "label": "tests/deploy/test_compose.py",
+      "path": "tests/deploy/test_compose.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "d01ad7133de9aa0cc7d56933c07ec3b2242c0da33436ae6572dcdfb9f51e3656"
+    },
+    {
+      "id": "file:tests/test_skeleton.py",
+      "type": "file",
+      "label": "tests/test_skeleton.py",
+      "path": "tests/test_skeleton.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "27b35deb3df7696393f99c665810b1c1443f3ca015931ddc5a2c4c4e959ebcba"
+    }
+  ],
+  "edges": [],
+  "warnings": [
+    "Python AST unavailable: python3 failed"
+  ],
+  "stats": {
+    "unresolvedCalls": 0
+  }
+}

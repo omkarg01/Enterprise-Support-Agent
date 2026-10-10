@@ -1,0 +1,70 @@
+# Learning deployment profile (SPEC.md NFR-36): the backbone runs on one Oracle Cloud Always Free ARM VM.
+# Every image is pinned and has an arm64 build. Ports bind to localhost only; app services join in later tasks.
+# Free managed services (Neon/Supabase, Qdrant Cloud, R2, Upstash, Langfuse) replace local ones via .env.
+name: support-agent
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-agent}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent}"]
+      interval: 10s
+      retries: 5
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  temporal:
+    # ponytail: dev server on SQLite, one process; Temporal cluster on Postgres is the production target (ADP-02).
+    image: temporalio/temporal:1.9.1
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--db-filename", "/data/temporal.db"]
+    volumes:
+      - temporaldata:/data
+    ports:
+      - "127.0.0.1:7233:7233"
+      - "127.0.0.1:8233:8233"
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    volumes:
+      - qdrantdata:/qdrant/storage
+    ports:
+      - "127.0.0.1:6333:6333"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+
+  openbao:
+    # ponytail: dev mode keeps keys in memory; file storage + unseal when keys must survive restarts (M0-04).
+    image: openbao/openbao:2.1.0
+    command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: ${OPENBAO_DEV_TOKEN:?set OPENBAO_DEV_TOKEN in .env}
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - "127.0.0.1:8200:8200"
+
+  ollama:
+    image: ollama/ollama:0.5.4
+    volumes:
+      - ollamadata:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+
+volumes:
+  pgdata:
+  temporaldata:
+  qdrantdata:
+  ollamadata:

@@ -1,0 +1,33 @@
+digraph genesis {
+  rankdir=LR;
+  node [shape=box,fontname="system-ui"];
+  "file:scripts/adp_registry.py" [label="scripts/adp_registry.py",class="file"];
+  "file:scripts/generate_adp_index.py" [label="scripts/generate_adp_index.py",class="file"];
+  "file:scripts/generate_architecture_tldr.py" [label="scripts/generate_architecture_tldr.py",class="file"];
+  "file:scripts/generate_lld_cost.py" [label="scripts/generate_lld_cost.py",class="file"];
+  "file:scripts/generate_lld_data.py" [label="scripts/generate_lld_data.py",class="file"];
+  "file:scripts/generate_lld_deployment.py" [label="scripts/generate_lld_deployment.py",class="file"];
+  "file:scripts/generate_lld_eval.py" [label="scripts/generate_lld_eval.py",class="file"];
+  "file:scripts/generate_lld_hitl.py" [label="scripts/generate_lld_hitl.py",class="file"];
+  "file:scripts/generate_lld_improvement.py" [label="scripts/generate_lld_improvement.py",class="file"];
+  "file:scripts/generate_lld_knowledge.py" [label="scripts/generate_lld_knowledge.py",class="file"];
+  "file:scripts/generate_lld_memory.py" [label="scripts/generate_lld_memory.py",class="file"];
+  "file:scripts/generate_lld_multiagent.py" [label="scripts/generate_lld_multiagent.py",class="file"];
+  "file:scripts/generate_lld_observability.py" [label="scripts/generate_lld_observability.py",class="file"];
+  "file:scripts/generate_lld_page.py" [label="scripts/generate_lld_page.py",class="file"];
+  "file:scripts/generate_lld_reliability.py" [label="scripts/generate_lld_reliability.py",class="file"];
+  "file:scripts/generate_lld_safety.py" [label="scripts/generate_lld_safety.py",class="file"];
+  "file:scripts/generate_lld_testing.py" [label="scripts/generate_lld_testing.py",class="file"];
+  "file:scripts/generate_lld_tools.py" [label="scripts/generate_lld_tools.py",class="file"];
+  "file:scripts/generate_lld_user_app.py" [label="scripts/generate_lld_user_app.py",class="file"];
+  "file:scripts/lld_layout.py" [label="scripts/lld_layout.py",class="file"];
+  "file:scripts/organize_adps.py" [label="scripts/organize_adps.py",class="file"];
+  "file:src/core/__init__.py" [label="src/core/__init__.py",class="file"];
+  "file:src/core/release_paths.py" [label="src/core/release_paths.py",class="file"];
+  "file:src/data/__init__.py" [label="src/data/__init__.py",class="file"];
+  "file:src/data/migrate.py" [label="src/data/migrate.py",class="file"];
+  "file:tests/data/test_schema.py" [label="tests/data/test_schema.py",class="file"];
+  "file:tests/deploy/test_compose.py" [label="tests/deploy/test_compose.py",class="file"];
+  "file:tests/test_skeleton.py" [label="tests/test_skeleton.py",class="file"];
+
+}

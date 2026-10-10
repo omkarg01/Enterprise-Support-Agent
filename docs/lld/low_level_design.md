@@ -460,6 +460,7 @@ A coordinator delegates to specialist sub-agents with their own instructions, to
 ### Foundation: DEPLOYMENT & LLMOPS (Capability 15)
 
 > **Decided design:** [`checkpoint.md`](../decisions/checkpoint.md) §18 (DL-D1 – DL-D12) · diagram page `LLD - [14] Deployment & LLMOps`.
+> **v1 runtime (learning project):** the design below is the production target. v1 runs on the *learning deployment profile* — one Oracle Cloud Always Free ARM VM with Docker Compose + free managed services, ≤ USD 10/month — mapped component by component in [`SPEC.md`](../../SPEC.md) (*Constraints*).
 
 * **Environments:** dev + one staging (US) + production per region (US, EU); only US tenants' samples in staging (DL-D1, D12).
 * **Two release tracks:** code deploys on merge, all at once per region; merges touching prompts, Jev questions, thresholds, policies or model config are held by a CI path rule for a scheduled release that passes the full EV-D5 gate and rolls out shadow → canary on read-only routes → all (DL-D2, D4, D10).

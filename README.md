@@ -96,6 +96,20 @@ flowchart LR
 | **ADP-04** | Agent Runtime | Error Recovery | **Dual-Process Circuit Breaker** (Max 2 Reflexion trials, immediate HITL tripwire on persistence) |
 | **ADP-05** | Agent Runtime | Decision Model | **Jev (TypeSafe) at decision points** (triage, FSM transition guards, tool selection; LangGraph stays the runner, code owns control flow) |
 
+All 79 ADPs (Orchestration + 15 components): [`docs/decisions/adp_index.md`](./docs/decisions/adp_index.md).
+
+---
+
+## 💸 v1 Deployment: Learning Profile
+
+This is a learning project. The ADPs describe the **target production design** (AWS in US + EU, Kubernetes, multi-AZ, GPUs), which would cost roughly USD 6,500–9,500/month. **v1 runs on a learning deployment profile instead, capped at USD 10/month:**
+
+* **One Oracle Cloud Always Free ARM VM** running Docker Compose: Temporal dev server + workers, LangGraph orchestrator, API, Jaeger, OpenBao, Ollama (and optionally Postgres / Qdrant).
+* **Free managed services:** Vercel (frontend), Neon or Supabase (Postgres), Qdrant Cloud (vectors), Cloudflare R2 (objects / backups), Upstash Redis (counters), Langfuse or Grafana Cloud (traces), Hugging Face Spaces (Streamlit specialist console), GitHub Actions (CI).
+* **Models:** Groq / Gemini free tiers (or Ollama) for most turns, the judge and screening; Claude only for the hardest turns, under a USD 10 console spend limit.
+
+The full mapping from each production component to its v1 form is in [`SPEC.md`](./SPEC.md) (*Constraints → Learning deployment profile*).
+
 ---
 
 ## 🎨 Interactive Whiteboard Canvas
