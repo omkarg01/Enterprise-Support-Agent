@@ -1,0 +1,30 @@
+{
+  "task": "task-1-envelope-identity",
+  "gate": "test",
+  "kind": "command",
+  "attempt": "b3fa669f-3a44-41c3-93b0-49ae648c40fa",
+  "command": "python -m unittest tests/test_envelope.py",
+  "started_at": "2026-10-09T17:00:08.426Z",
+  "observed_at": "2026-10-09T17:00:13.066Z",
+  "exit_code": 0,
+  "signal": null,
+  "stdout": "",
+  "stderr": "........\r\n----------------------------------------------------------------------\r\nRan 8 tests in 0.001s\r\n\r\nOK\r\n",
+  "failure": null,
+  "receipt": null,
+  "revision": {
+    "commit": "14071fa425ca938c96f7d21f2bb74c95796dd45c",
+    "dirty": true
+  },
+  "source_hash": "b2e8ee30fdaf62c7bbf6d8cf1edbb0d7fe6e7b9169ab876fc12a95ad7ecd84c6",
+  "before_hash": "b2e8ee30fdaf62c7bbf6d8cf1edbb0d7fe6e7b9169ab876fc12a95ad7ecd84c6",
+  "config_hash": "c9da1146dc74b878f888e069f6c0c4a7f00d909f873cc7237ffd6817f493f6e0",
+  "environment": {
+    "node": "v22.19.0",
+    "platform": "win32",
+    "arch": "x64",
+    "verifier": "cbdddbf25e5ed5f3406b93881ae54f64d11a8c54f0bfe177d19d9d9946a6a971",
+    "variables": {}
+  },
+  "hash": "cf9d0519680faa025e20ff8c3de454d8dd8de28ccb742ba33e57d293ab7577d0"
+}
