@@ -1,0 +1,30 @@
+{
+  "task": "M6-02.7",
+  "gate": "tests",
+  "kind": "command",
+  "attempt": "70e3a0db-1d8e-408f-89f2-0bd6181d1ffc",
+  "command": "python -m pytest tests/improvement/levers/ -q",
+  "started_at": "2026-10-31T16:45:00.068Z",
+  "observed_at": "2026-10-31T16:45:08.767Z",
+  "exit_code": 0,
+  "signal": null,
+  "stdout": ".................................                                        [100%]\r\n33 passed in 5.51s\r\n",
+  "stderr": "",
+  "failure": null,
+  "receipt": null,
+  "revision": {
+    "commit": "48f0f85b8b1846cfaff59005880d955c3c282751",
+    "dirty": true
+  },
+  "source_hash": "1026f6810498dd4f1f54c26248ce75d0ee311c7bc6b9b9a70889a951e9946160",
+  "before_hash": "1026f6810498dd4f1f54c26248ce75d0ee311c7bc6b9b9a70889a951e9946160",
+  "config_hash": "c3de2e8cd2b710ad591e0873e66b96fabbfdd62cefdf13ce282a2e9f2d8b2881",
+  "environment": {
+    "node": "v24.21.0",
+    "platform": "win32",
+    "arch": "x64",
+    "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+    "variables": {}
+  },
+  "hash": "d34ad0ddea7e36a03925e3c730a750662157d1ad939d89c50567d6b9c3c36de3"
+}

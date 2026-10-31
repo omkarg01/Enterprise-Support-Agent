@@ -1,0 +1,35 @@
+# The VM's layer over deploy/compose.yaml (AC-15; DECISION-2744aaec):
+#   APP_IMAGE=support-agent-app:<commit> docker compose -f deploy/compose.yaml -f deploy/vm/compose.vm.yaml \
+#     --env-file .env up -d
+# deploy/vm/release.py sets APP_IMAGE and APP_REVISION. Postgres is Neon (DATABASE_URL), so the local one only
+# starts with --profile local-postgres. The api is the one port open to the internet (plain HTTP on the
+# public IP); the backbone stays on 127.0.0.1 and is reached by service name inside the compose network.
+services:
+  postgres:
+    profiles: ["local-postgres"]
+
+  api:
+    image: ${APP_IMAGE:?set APP_IMAGE (deploy/vm/release.py does)}
+    env_file: ${APP_ENV_FILE:-../.env}       # relative to deploy/, the project directory
+    environment:
+      APP_REVISION: ${APP_REVISION:-unknown}
+      QDRANT_URL: http://qdrant:6333
+      BAO_ADDR: http://openbao:8200
+      OLLAMA_URL: http://ollama:11434
+      TEMPORAL_ADDRESS: temporal:7233
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      SUPPORT_AGENT_HOST: 0.0.0.0
+      SUPPORT_AGENT_PORT: "8000"
+      SUPPORT_AGENT_DEV_AUTH: "0"
+    ports:
+      - "0.0.0.0:8000:8000"
+    depends_on: [temporal, qdrant, jaeger, openbao, ollama]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    mem_limit: 2g
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}

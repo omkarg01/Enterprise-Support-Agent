@@ -1,0 +1,15 @@
+{
+  "version": "2026-10-31",
+  "jev": {
+    "model": null,
+    "note": "DL-D3: Jev is pinned to an exact version. Null blocks a rollout while TYPESAFE_API_KEY is set, unless it is run with --allow-unpinned jev."
+  },
+  "embedding": {"provider": "ollama", "model": "nomic-embed-text:v1.5", "dimensions": 768},
+  "screening": {"provider": "ollama", "model": "llama-guard3:1b"},
+  "tiers": {
+    "0": {"provider": "groq", "model": "llama-3.1-8b-instant", "usd_per_mtok": [0, 0]},
+    "1": {"provider": "gemini", "model": "gemini-flash-latest", "usd_per_mtok": [0, 0]},
+    "2": {"provider": "anthropic", "model": "claude-opus-5-5", "usd_per_mtok": [4.0, 20.0]}
+  },
+  "monthly_cap_usd": 10
+}
