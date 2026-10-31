@@ -9,7 +9,7 @@
     "non_goals": [],
     "trust_boundary": "local repository",
     "created_at": "2026-10-09T16:13:56.964Z",
-    "updated_at": "2026-10-31T17:41:59.006Z"
+    "updated_at": "2026-10-31T17:55:29.288Z"
   },
   "policy": {
     "ponytail": "full",
@@ -31375,13 +31375,13 @@
           "kind": "command",
           "command": "python -m pytest tests/runtime/ tests/deploy/vm/ -q",
           "mandatory": true,
-          "status": "fail",
+          "status": "pass",
           "evidence": {
-            "path": ".genesis/evidence/M7-01-tests-71d2d9a9-9a0b-4705-8eee-c37a89364981.json",
-            "hash": "8570926b061f55584eab56534ca88397306446b4ca6aa2a6fe77ce6c5ea88984",
-            "source_hash": "4e6faf5dbff72c96dba03ac06c53d4d2b015c7ce46a928783672bca659e650d9",
+            "path": ".genesis/evidence/M7-01-tests-ed82e837-4126-4294-816d-db42775a8828.json",
+            "hash": "03323ca8008514c4ec8fbefeecf48da59632897b770d2ed71d804bd3c69ed54f",
+            "source_hash": "5106c975cb1ebe167f07bc73e84f3ac87811b008b23e25260872ea64b66f89ea",
             "config_hash": "0365521fd8102304e88d5407fd022af6a2375ada30ae22d2e6cb687d271db8b3",
-            "observed_at": "2026-10-31T17:41:25.452Z"
+            "observed_at": "2026-10-31T17:55:22.737Z"
           }
         },
         {
@@ -36309,6 +36309,78 @@
       "cost": null,
       "stop_reason": "command-failed",
       "ended_at": "2026-10-31T17:41:25.452Z"
+    },
+    {
+      "id": "4ecefcf0-0a0e-4295-bb48-e835dbe17062",
+      "task": "M7-01",
+      "kind": "gate",
+      "command": "python -m pytest tests/runtime/ tests/deploy/vm/ -q",
+      "timeout": 120000,
+      "authorization": null,
+      "pid": 12960,
+      "child_pid": 10960,
+      "started_at": "2026-10-31T17:42:36.645Z",
+      "status": "failed",
+      "before_hash": "5106c975cb1ebe167f07bc73e84f3ac87811b008b23e25260872ea64b66f89ea",
+      "config_hash": "0365521fd8102304e88d5407fd022af6a2375ada30ae22d2e6cb687d271db8b3",
+      "environment": {
+        "node": "v24.21.0",
+        "platform": "win32",
+        "arch": "x64",
+        "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+        "variables": {}
+      },
+      "cost": null,
+      "stop_reason": "timeout",
+      "ended_at": "2026-10-31T17:46:04.596Z"
+    },
+    {
+      "id": "4bbbada7-e0c5-4e42-9061-aad4e9896c99",
+      "task": "M7-01",
+      "kind": "gate",
+      "command": "python -m pytest tests/runtime/ tests/deploy/vm/ -q",
+      "timeout": 120000,
+      "authorization": null,
+      "pid": 26768,
+      "child_pid": 18216,
+      "started_at": "2026-10-31T17:48:01.520Z",
+      "status": "failed",
+      "before_hash": "5106c975cb1ebe167f07bc73e84f3ac87811b008b23e25260872ea64b66f89ea",
+      "config_hash": "0365521fd8102304e88d5407fd022af6a2375ada30ae22d2e6cb687d271db8b3",
+      "environment": {
+        "node": "v24.21.0",
+        "platform": "win32",
+        "arch": "x64",
+        "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+        "variables": {}
+      },
+      "cost": null,
+      "stop_reason": "timeout",
+      "ended_at": "2026-10-31T17:51:01.388Z"
+    },
+    {
+      "id": "ed82e837-4126-4294-816d-db42775a8828",
+      "task": "M7-01",
+      "kind": "gate",
+      "command": "python -m pytest tests/runtime/ tests/deploy/vm/ -q",
+      "timeout": 540000,
+      "authorization": null,
+      "pid": 23600,
+      "child_pid": 28592,
+      "started_at": "2026-10-31T17:51:29.979Z",
+      "status": "passed",
+      "before_hash": "5106c975cb1ebe167f07bc73e84f3ac87811b008b23e25260872ea64b66f89ea",
+      "config_hash": "0365521fd8102304e88d5407fd022af6a2375ada30ae22d2e6cb687d271db8b3",
+      "environment": {
+        "node": "v24.21.0",
+        "platform": "win32",
+        "arch": "x64",
+        "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+        "variables": {}
+      },
+      "cost": null,
+      "stop_reason": null,
+      "ended_at": "2026-10-31T17:55:22.737Z"
     }
   ],
   "authorizations": [],
@@ -36335,9 +36407,9 @@
     }
   },
   "checkpoint": {
-    "at": "2026-10-31T17:41:57.635Z",
+    "at": "2026-10-31T17:55:25.022Z",
     "revision": {
-      "commit": "c920e4121de578fcf6a132d95c8ed0bece1a7361",
+      "commit": "1e376fa5e30349da42f6ba8e5002ba192d898d65",
       "dirty": true,
       "source_hash": "5106c975cb1ebe167f07bc73e84f3ac87811b008b23e25260872ea64b66f89ea"
     },
