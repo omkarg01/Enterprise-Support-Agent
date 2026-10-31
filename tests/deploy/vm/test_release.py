@@ -19,7 +19,8 @@ spec.loader.exec_module(release)
 
 LOCK = json.loads((ROOT / "deploy" / "vm" / "models.json").read_text(encoding="utf-8"))
 OLD, NEW, NEWER = "a" * 40, "b" * 40, "c" * 40
-ENV = "MONTHLY_SPEND_CAP_USD=10\nDATABASE_URL=postgresql://u:p@db.test/neondb\nGROQ_API_KEY=gsk\n"
+ENV = ("MONTHLY_SPEND_CAP_USD=10\nDATABASE_URL=postgresql://u:p@db.test/neondb\nGROQ_API_KEY=gsk\n"
+       "PII_TOKEN_KEY=k\n")
 TICKET = "@workflow.defn\nclass TicketWorkflow:\n    pass\n"
 
 
@@ -157,6 +158,7 @@ def test_uncommitted_changes_on_the_vm_refuse_the_rollout(vm, tmp_path):
     ("MONTHLY_SPEND_CAP_USD=25\n", "MONTHLY_SPEND_CAP_USD must be set and at most 10"),
     ("MONTHLY_SPEND_CAP_USD=ten\n", "MONTHLY_SPEND_CAP_USD must be set"),
     ("MONTHLY_SPEND_CAP_USD=10\nSUPPORT_AGENT_DEV_AUTH=1\n", "anyone sign in with a header"),
+    ("MONTHLY_SPEND_CAP_USD=10\n", "PII_TOKEN_KEY is not set"),
 ])
 def test_the_spend_cap_and_header_sign_in_are_checked(vm, tmp_path, settings, problem):
     env(tmp_path, settings)

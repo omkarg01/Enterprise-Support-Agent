@@ -42,7 +42,7 @@ def docker(*args, timeout=900, check=True):
 
 def container_env():
     return ["--add-host", "host.docker.internal:host-gateway", "-e", f"DATABASE_URL={URL}",
-            "-e", f"VAULT_DATABASE={VAULT}", "-e", f"KEYS_DATABASE={KEYS}"]
+            "-e", f"VAULT_DATABASE={VAULT}", "-e", f"KEYS_DATABASE={KEYS}", "-e", "PII_TOKEN_KEY=image-test"]
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +62,7 @@ def migrated(image):
     return run.stdout
 
 
-# The compose layer ------------------------------------------------------------------------------------------
+# The compose layer ----------------------------------------------------------------------------------------
 
 def vm_config(tmp_path, **extra_env):
     env_file = tmp_path / "vm.env"
@@ -83,7 +83,7 @@ def test_the_vm_runs_the_api_and_the_backbone_but_not_the_local_postgres(tmp_pat
     assert api["image"] == "support-agent-app:abc123" and api["read_only"] and api["cap_drop"] == ["ALL"]
     env = api["environment"]
     assert env["SUPPORT_AGENT_DEV_AUTH"] == "0" and env["APP_REVISION"] == "abc123"
-    assert env["QDRANT_URL"] == "http://qdrant:6333" and env["BAO_ADDR"] == "http://openbao:8200"
+    assert env["QDRANT_SERVICE_URL"] == "http://qdrant:6333" and env["BAO_ADDR"] == "http://openbao:8200"
     public = [(name, p) for name, s in services.items() for p in s.get("ports", [])
               if p.get("host_ip") != "127.0.0.1"]
     assert [(name, p["published"]) for name, p in public] == [("api", "8000")]
@@ -104,7 +104,7 @@ def test_the_setup_script_is_valid_bash_for_oracle_linux_and_ends_in_a_rollout()
     assert "setenforce" not in text                       # SELinux stays enforcing
 
 
-# The image --------------------------------------------------------------------------------------------------
+# The image ------------------------------------------------------------------------------------------------
 
 def test_the_dockerfile_pins_its_base_runs_unprivileged_and_copies_only_what_it_needs():
     assert re.search(r"^FROM python:3\.11\.\d+-slim-bookworm$", DOCKERFILE, re.M)
@@ -184,6 +184,15 @@ def test_a_customer_signs_in_anonymously_and_posts_a_turn(served):
     reply = httpx.post(f"{served}/v1/conversations/c-vm/turns", json={"content": "Is the API up?"},
                        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "k-vm-1"})
     assert reply.status_code == 202 and reply.json()["status"] == "QUEUED"
+    turn_id = reply.json()["turn_id"]
+    kinds = []
+    for _ in range(60):                 # no model key and no Ollama here: the turn still ends, in a hand-off
+        kinds = [row[0] for row in psql(DB, "SELECT event_type FROM outbound_event_log WHERE conversation_id "
+                                            f"= 'c-vm' AND data->>'turn_id' = '{turn_id}' ORDER BY id")]
+        if kinds and kinds[-1] in ("final", "handoff", "error"):
+            break
+        time.sleep(1)
+    assert kinds[0] == "status" and kinds[-1] == "handoff", kinds
 
 
 def test_the_container_refuses_to_serve_with_header_sign_in_on(image):

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "project": "Enterprise-Support-Agent",
-  "revision": "48f0f85b8b1846cfaff59005880d955c3c282751",
-  "sourceHash": "546d86e070d010ea4cad80dda63fa7829a903bc5d45e7d9c472f0d07c06f3faa",
+  "revision": "1e376fa5e30349da42f6ba8e5002ba192d898d65",
+  "sourceHash": "0e4b651f50197f32ab19a8cda16b5c216c0313381167f8e1193b1e9d1c3482c4",
   "provenance": {
     "tool": "genesis-graphizer",
     "method": "static-analysis",
@@ -47,7 +47,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "35819517ebd1206bef76e35eacbf6e8324969c6a298ca0c704b546702df70362"
+      "contentHash": "94f58ea47193730ec51c6d1e842af52c8867ae2eda1c593c0fd823ba7a1d3849"
     },
     {
       "id": "file:deploy/vm/release.py",
@@ -57,7 +57,17 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "f8c16bd653d33633e6a43a0f4b0d1fc667f9cb51c107952d13e30d59c0c52b63"
+      "contentHash": "fc9e62790aa5bdd76efd46c234c5fa26153ef4e6c0865840e87f8e34075ef0ba"
+    },
+    {
+      "id": "file:deploy/vm/seed_kb.py",
+      "type": "file",
+      "label": "deploy/vm/seed_kb.py",
+      "path": "deploy/vm/seed_kb.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "af45793cc916daf83c46aa31754c6ca4b2688695dcff420fe25092845226e153"
     },
     {
       "id": "file:deploy/vm/serve.py",
@@ -67,7 +77,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "2124be10384a3150a7c8df1189ca83ca151b8c3db41626020d1d4c9182a0eec8"
+      "contentHash": "a3c158c46496db35c45659197d3adbb7826d9218e55d2f0b81ed08cd16e3deef"
     },
     {
       "id": "file:deploy/vm/spend.py",
@@ -1100,6 +1110,36 @@
       "contentHash": "e53bbefaa00aaea9a22827be4ba9b2161b12a49fccfd7a48facd39f0401960f4"
     },
     {
+      "id": "file:src/runtime/__init__.py",
+      "type": "file",
+      "label": "src/runtime/__init__.py",
+      "path": "src/runtime/__init__.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "e681e251a41632cf06b1665df50ddd4193533ee2d170eb0d90d8a9c783fa2383"
+    },
+    {
+      "id": "file:src/runtime/__main__.py",
+      "type": "file",
+      "label": "src/runtime/__main__.py",
+      "path": "src/runtime/__main__.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "34ed794d69663c8502c0c934e10c32dd0d3c06c68945b9db07d8d85d91717c27"
+    },
+    {
+      "id": "file:src/runtime/production.py",
+      "type": "file",
+      "label": "src/runtime/production.py",
+      "path": "src/runtime/production.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "b08f25d50b80cc8fc73b49f6cf96c8988cd88dd45af44d3cc4451c991a67080f"
+    },
+    {
       "id": "file:src/safety/authz/__init__.py",
       "type": "file",
       "label": "src/safety/authz/__init__.py",
@@ -1547,7 +1587,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "ae021466aab84c910a616789295d045e0f9435e6b53b7a6520563c14c7b62dc1"
+      "contentHash": "eae3a4e31f3f413fb04907e9acaef4200986c6956b2874da0981f951bed79cad"
     },
     {
       "id": "file:tests/deploy/vm/test_vm_image.py",
@@ -1557,7 +1597,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "b9c636b5c5f7257afb17850ee837f801945bdd077993cb370b6653359b515650"
+      "contentHash": "2506b0820c2b3c95cb03c48e43a41226338a074f157e6330d758c97a368be437"
     },
     {
       "id": "file:tests/deploy/vm/test_vm_tools.py",
@@ -1567,7 +1607,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "fde092b80cd9c3065b5525a4337aeabb2723e6fc51ca829b7be5ae70efe5ef09"
+      "contentHash": "fc6eb95b784aa2eea1438b74c10d215fa7576c88c91825ddec501bf3182e278a"
     },
     {
       "id": "file:tests/e2e/test_scenario_degradation.py",
@@ -1958,6 +1998,16 @@
       "confidence": 1,
       "extractor": "filesystem",
       "contentHash": "2e8966a445e3cbd27ce0d9dd079dd48a798856b37ddb379c86fa738068d3eaee"
+    },
+    {
+      "id": "file:tests/runtime/test_turn_loop.py",
+      "type": "file",
+      "label": "tests/runtime/test_turn_loop.py",
+      "path": "tests/runtime/test_turn_loop.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "3d3a8e3dd8df1ddd17347e25ea8ce200c51372ad88c493ae7c157c6fa334138e"
     },
     {
       "id": "file:tests/safety/authz/test_cedar.py",

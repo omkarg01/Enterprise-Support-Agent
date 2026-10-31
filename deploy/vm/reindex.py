@@ -88,10 +88,12 @@ def main():
     sys.path[:0] = [str(ROOT / "src")]
     from qdrant_client import QdrantClient
 
+    from runtime.production import qdrant_url
+
     lock = json.loads((ROOT / "deploy" / "vm" / "models.json").read_text(encoding="utf-8"))["embedding"]
     if lock["provider"] != "ollama":
         raise SystemExit(f"no embedder for provider {lock['provider']!r}")
-    client = QdrantClient(url=os.environ.get("QDRANT_URL", "http://qdrant:6333"),
+    client = QdrantClient(url=qdrant_url(os.environ),
                           api_key=os.environ.get("QDRANT_API_KEY") or None)
     embed = ollama_embed(os.environ.get("OLLAMA_URL", "http://ollama:11434"), lock["model"])
     print(json.dumps(reindex(client, embed, lock["dimensions"])), flush=True)

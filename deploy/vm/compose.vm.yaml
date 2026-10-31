@@ -13,7 +13,7 @@ services:
     env_file: ${APP_ENV_FILE:-../.env}       # relative to deploy/, the project directory
     environment:
       APP_REVISION: ${APP_REVISION:-unknown}
-      QDRANT_URL: http://qdrant:6333
+      QDRANT_SERVICE_URL: http://qdrant:6333         # used when .env's QDRANT_URL is empty or loopback
       BAO_ADDR: http://openbao:8200
       OLLAMA_URL: http://ollama:11434
       TEMPORAL_ADDRESS: temporal:7233

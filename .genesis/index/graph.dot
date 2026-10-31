@@ -6,6 +6,7 @@ digraph genesis {
   "file:deploy/vm/migrate.py" [label="deploy/vm/migrate.py",class="file"];
   "file:deploy/vm/reindex.py" [label="deploy/vm/reindex.py",class="file"];
   "file:deploy/vm/release.py" [label="deploy/vm/release.py",class="file"];
+  "file:deploy/vm/seed_kb.py" [label="deploy/vm/seed_kb.py",class="file"];
   "file:deploy/vm/serve.py" [label="deploy/vm/serve.py",class="file"];
   "file:deploy/vm/spend.py" [label="deploy/vm/spend.py",class="file"];
   "file:evals/datasets/__init__.py" [label="evals/datasets/__init__.py",class="file"];
@@ -110,6 +111,9 @@ digraph genesis {
   "file:src/reliability/fallbacks.py" [label="src/reliability/fallbacks.py",class="file"];
   "file:src/reliability/hold/__init__.py" [label="src/reliability/hold/__init__.py",class="file"];
   "file:src/reliability/hold/activities.py" [label="src/reliability/hold/activities.py",class="file"];
+  "file:src/runtime/__init__.py" [label="src/runtime/__init__.py",class="file"];
+  "file:src/runtime/__main__.py" [label="src/runtime/__main__.py",class="file"];
+  "file:src/runtime/production.py" [label="src/runtime/production.py",class="file"];
   "file:src/safety/authz/__init__.py" [label="src/safety/authz/__init__.py",class="file"];
   "file:src/safety/authz/cedar.py" [label="src/safety/authz/cedar.py",class="file"];
   "file:src/safety/governance/__init__.py" [label="src/safety/governance/__init__.py",class="file"];
@@ -196,6 +200,7 @@ digraph genesis {
   "file:tests/reliability/backup/test_backup.py" [label="tests/reliability/backup/test_backup.py",class="file"];
   "file:tests/reliability/bursts/test_bursts.py" [label="tests/reliability/bursts/test_bursts.py",class="file"];
   "file:tests/router/test_router.py" [label="tests/router/test_router.py",class="file"];
+  "file:tests/runtime/test_turn_loop.py" [label="tests/runtime/test_turn_loop.py",class="file"];
   "file:tests/safety/authz/test_cedar.py" [label="tests/safety/authz/test_cedar.py",class="file"];
   "file:tests/safety/governance/test_governance.py" [label="tests/safety/governance/test_governance.py",class="file"];
   "file:tests/safety/output/test_output_checks.py" [label="tests/safety/output/test_output_checks.py",class="file"];

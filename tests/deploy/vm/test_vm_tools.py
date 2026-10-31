@@ -16,6 +16,7 @@ from qdrant_client import QdrantClient, models
 from cost import budgets
 from data.migrate import PsqlError, migrate, psql
 from knowledge.index.store import Index, collection
+from runtime import production
 
 ROOT = Path(__file__).resolve().parents[3]
 DB = "test_vm_tools"
@@ -30,7 +31,7 @@ def load(name):
     return module
 
 
-reindex, spend, vm_migrate, serve = load("reindex"), load("spend"), load("migrate"), load("serve")
+reindex, spend, vm_migrate = load("reindex"), load("spend"), load("migrate")
 
 
 # The in-place re-index --------------------------------------------------------------------------------------
@@ -177,12 +178,14 @@ def test_the_role_bootstrap_is_valid_and_creates_every_role_once():
 
 def test_the_vm_api_has_no_mock_sso_route_and_answers_its_health_check(ledger_db, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", ledger_db)
-    api = serve.app({"APP_REVISION": "r1"})
+    monkeypatch.setenv("PII_TOKEN_KEY", "test-token-key")
+    api = production.app({"APP_REVISION": "r1"})
     paths = set(api.openapi()["paths"])
     assert "/v1/identity/mock-idp" not in paths and {"/healthz", "/v1/identity/anonymous"} <= paths
     assert TestClient(api).get("/healthz").json() == {"status": "ok", "revision": "r1"}
+    assert api.state.turn_loop is not None                    # accepted turns are answered, not dropped
     with pytest.raises(SystemExit, match="SUPPORT_AGENT_DEV_AUTH"):
-        serve.app({"SUPPORT_AGENT_DEV_AUTH": "1"})
+        production.app({"SUPPORT_AGENT_DEV_AUTH": "1"})
 
 
 def test_the_vm_tools_import_nothing_the_image_lacks():
@@ -190,11 +193,11 @@ def test_the_vm_tools_import_nothing_the_image_lacks():
     import tomllib
 
     allowed = {"psycopg", "qdrant_client", "httpx", "uvicorn", "fastapi"} | set(sys.stdlib_module_names)
-    packages = {"channels", "core", "cost", "data", "knowledge", "evals"}
+    packages = {"channels", "core", "cost", "data", "knowledge", "evals", "runtime"}
     deps = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
     assert {"qdrant-client>=1.12,<1.13", "httpx>=0.27", "uvicorn>=0.30", "fastapi>=0.115"} <= set(deps)
     import ast
-    for name in ("reindex", "spend", "migrate", "serve"):
+    for name in ("reindex", "spend", "migrate", "serve", "seed_kb"):
         tree = ast.parse((ROOT / "deploy" / "vm" / f"{name}.py").read_text(encoding="utf-8"))
         roots = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         roots |= {n.module.split(".")[0] for n in ast.walk(tree)

@@ -14,11 +14,12 @@ check /healthz. A failed build or migration leaves the live release untouched; a
 previous image back. Rollback is manual (DL-D5) and needs no schema change, because migrations only expand.
 
 The preflight refuses when: the checkout has uncommitted changes; MONTHLY_SPEND_CAP_USD is missing or above
-10, or development header sign-in is on; Claude is configured but the console spend limit is not attested;
-Jev is configured but not pinned in deploy/vm/models.json (DL-D3); workflows are running whose code the
-release changes (DL-D6: let them finish or move them with Continue-As-New first); port 8000 is held by a
-process outside compose; or the disk has less than 3 GB free. A release that changes the pinned embedding
-model needs --maintenance: the knowledge collections are rebuilt in place before the swap (DL-D11).
+10, PII_TOKEN_KEY is missing, or development header sign-in is on; Claude is configured but the console spend
+limit is not attested; Jev is configured but not pinned in deploy/vm/models.json (DL-D3); workflows are
+running whose code the release changes (DL-D6: let them finish or move them with Continue-As-New first); port
+8000 is held by a process outside compose; or the disk has less than 3 GB free. A release that changes the
+pinned embedding model needs --maintenance: the knowledge collections are rebuilt in place before the swap
+(DL-D11).
 
 State (the release history and the spend-limit attestation) lives in ~/.support-agent/, outside the checkout.
 """
@@ -112,7 +113,7 @@ class Release:
         self.run_command, self.docker = run or self._subprocess, list(docker)
         self.http_status, self.clock, self.sleep = http_status or self._http_status, clock, sleep
 
-    # Plumbing ---------------------------------------------------------------------------------------------
+    # Plumbing ----------------------------------------------------------------------------------------------
 
     def _subprocess(self, args, env=None):
         merged = dict(os.environ, **(env or {}))
@@ -140,7 +141,7 @@ class Release:
         env = {"APP_IMAGE": image or "unset", "APP_REVISION": revision or "unknown"}
         return self.run([*self.docker, *COMPOSE, *args], env=env, check=check)
 
-    # State ------------------------------------------------------------------------------------------------
+    # State -------------------------------------------------------------------------------------------------
 
     def history(self):
         path = self.state_dir / "releases.json"
@@ -170,7 +171,7 @@ class Release:
         (self.state_dir / "spend-limit.json").write_text(json.dumps(entry), encoding="utf-8")
         return entry
 
-    # Preflight --------------------------------------------------------------------------------------------
+    # Preflight ---------------------------------------------------------------------------------------------
 
     def preflight(self, commit, allow_unpinned=(), maintenance=False):
         problems = []
@@ -184,6 +185,9 @@ class Release:
         cap = env.get("MONTHLY_SPEND_CAP_USD")
         if cap is None or not re.fullmatch(r"\d+(\.\d+)?", cap) or float(cap) > CAP_USD:
             problems.append(f"MONTHLY_SPEND_CAP_USD must be set and at most {CAP_USD:g} (NFR-36)")
+        if env and not env.get("PII_TOKEN_KEY"):
+            problems.append("PII_TOKEN_KEY is not set: the turn loop cannot tokenize messages (set a long "
+                            "random value once and never change it)")
         if env.get("SUPPORT_AGENT_DEV_AUTH") == "1":
             problems.append("SUPPORT_AGENT_DEV_AUTH=1 would let anyone sign in with a header")
         if env.get("ANTHROPIC_API_KEY") and not self.attestation():
@@ -250,7 +254,7 @@ class Release:
                 + ", ".join(f"{n} x{c}" for n, c in counts.items())
                 + " (let them finish, or move them to the new code with Continue-As-New, DL-D6)"]
 
-    # Steps ------------------------------------------------------------------------------------------------
+    # Steps -------------------------------------------------------------------------------------------------
 
     def resolve(self, ref):
         self.git("fetch", "--quiet", "origin", check=False)
