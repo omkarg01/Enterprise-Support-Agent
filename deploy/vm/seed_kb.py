@@ -7,10 +7,11 @@ acl_groups, is_restricted, updated_at); the body after it is what is chunked and
 in deploy/vm/models.json, and indexed into the public collection through knowledge.ingest, one batch per source
 system, so a rerun replaces the articles in place and an article removed from the folder is purged.
 
-Only customer_visible articles that are not tickets go into the public collection (KR-D2, KR-D13, KR-Q1 i):
-retrieval does not filter on audience, so an internal article indexed there could be quoted to a customer.
-Internal articles and tickets are listed as skipped. The source "seed_kb" (the first, unlabelled articles) is
-synced empty, which purges them from an index seeded before.
+The public collection holds the customer_visible articles that are not tickets (KR-D2, KR-D13, KR-Q1 i) and
+the unrestricted internal runbooks: a customer's answer may use a runbook's steps but never cites it (the
+turn loop filters citations on audience). Internal policies, restricted articles and tickets are listed as
+skipped. The source "seed_kb" (the first, unlabelled articles) is synced empty, which purges them from an
+index seeded before.
 """
 
 import json
@@ -48,7 +49,8 @@ def documents(folder=KB):
     for path in sorted(folder.glob("kb-*.md")):
         labels, body = front_matter(path.read_text(encoding="utf-8").replace("\r\n", "\n"))
         document = Document(markdown=body, **{key: labels[key] for key in FIELDS})
-        if document.audience == "customer_visible" and document.source_kind != "ticket":
+        runbook = document.source_system == "runbooks" and not document.is_restricted
+        if (document.audience == "customer_visible" or runbook) and document.source_kind != "ticket":
             public.append(document)
         else:
             skipped.append(document.doc_id)

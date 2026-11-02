@@ -58,18 +58,29 @@ def triage_answers(intent, confidence, severity, missing):
             "missing_details": {"type": "noul", "noul": missing}}
 
 
-class World:
-    """The scripted outside world, with a log of everything that reached it."""
+ANSWER = "Choose \"Forgot password\" on the sign-in page; the reset link works for 30 minutes."
+PASSAGE_ID = re.compile(r"<<<DATA (?:internal )?knowledge (\S+?)>>>")
 
-    def __init__(self, triage=None, model_down=False):
+
+class World:
+    """The scripted outside world, with a log of everything that reached it. claims: what every specialist
+    reports (None: one claim citing every passage it was shown)."""
+
+    def __init__(self, triage=None, model_down=False, lead="generalist", claims=None):
         self.triage = triage or triage_answers("GENERAL_INQUIRY", 0.95, 1, 0.05)
         self.model_down, self.jev, self.model = model_down, [], []
+        self.lead, self.claims = lead, claims
 
     def jev_reply(self, request):
         body = json.loads(request.content)
         self.jev.append(body)
         if "intent" in body["questions"]:
             answers = self.triage
+        elif "lead" in body["questions"]:               # delegation: one lead, nobody joins
+            answers = {qid: {"type": "noul", "noul": 0.05} for qid in body["questions"]}
+            answers["lead"] = {"type": "choice", "choice": self.lead, "confidence": 0.9}
+        elif "redirect" in body["questions"]:
+            answers = {"redirect": {"type": "noul", "noul": 0.05}}
         else:
             answers = {"difficulty": {"type": "score", "score": 1.0, "confidence": 0.9,
                                       "probabilities": {"0": 0.05, "1": 0.85, "2": 0.1, "3": 0, "4": 0}}}
@@ -82,14 +93,19 @@ class World:
             return httpx.Response(503, json={"error": "overloaded"})
         prompt = messages[-1]["content"]
         if "standalone search query" in prompt:
-            text = json.dumps({"standalone_query": "reset password", "exact_identifiers": []})
+            latest = prompt.split("Latest message:\n", 1)[1].strip()
+            text = json.dumps({"standalone_query": latest, "exact_identifiers": []})
         elif "Classify the customer conversation" in prompt or "Classify the customer message" in prompt:
             text = json.dumps({"intent": "GENERAL_INQUIRY", "severity": 1, "missing_details": False,
                                "confidence": 0.95})
         elif "Ask the customer one short" in prompt:
             text = "Which page were you on when the error appeared?"
-        elif "knowledge" in prompt:
-            text = "Choose \"Forgot password\" on the sign-in page; the reset link works for 30 minutes."
+        elif "specialist of the support team" in prompt:
+            ids = PASSAGE_ID.findall(prompt)
+            text = json.dumps(self.claims if self.claims is not None else
+                              [{"topic": "answer", "text": ANSWER, "evidence": ids}] if ids else [])
+        elif "specialist findings" in prompt:
+            text = ANSWER
         else:
             text = "not a ranking"
         return httpx.Response(200, json={"choices": [{"message": {"content": text}}],
@@ -214,14 +230,47 @@ def test_with_jev_and_every_model_down_triage_asks_and_the_turn_still_ends_in_a_
     assert loop(stack, world, jev=False).run(turn) == "handed_off"         # register B10, contained here
 
 
-def test_with_the_knowledge_base_down_the_turn_is_still_answered_without_passages(stack):
+def test_with_the_knowledge_base_down_no_claim_is_made_and_a_person_takes_it(stack):
     world = World()
     runner = loop(stack, world)
     runner.s.retriever.retrieve = lambda *args, **kwargs: 1 / 0          # the embedder or the index is down
     turn = inbound("How do I reset my password?")
-    assert runner.run(turn) == "answered"
+    assert runner.run(turn) == "handed_off"
     assert "citation" not in [kind for kind, _ in published(turn)]
-    assert "(no knowledge passage matched)" in world.model[-1][-1]["content"]
+    assert "(no knowledge passage matched)" in world.model[-1][-1]["content"]   # the specialist read nothing
+
+
+def test_when_no_passage_answers_it_the_case_goes_to_a_person_and_is_not_logged_as_answered(stack):
+    """Register: a "my articles don't cover this" reply was logged as answer / RESOLVED with unrelated
+    citations. No claim now means no evidence: a hand-off, a distinct reason, nothing cited."""
+    turn = inbound("How do I reset my password?")
+    assert loop(stack, World(claims=[])).run(turn) == "handed_off"
+    assert [kind for kind, _ in published(turn)][-1] == "handoff"
+    assert "citation" not in [kind for kind, _ in published(turn)]
+    (row,) = psql(DB, f"SELECT decision, reason, trace -> 'path' FROM decision_records "
+                      f"WHERE turn_id = '{turn.turn_id}'")
+    assert row[0] == "escalate" and row[1] == "Our documentation does not cover this, so a specialist will " \
+        "look at it with you." and "ESCALATED_HITL" in row[2]
+
+
+def test_the_lead_specialist_jev_picks_answers_and_an_internal_runbook_is_used_but_never_cited(stack):
+    """Golden question 16's case: the VPN runbook is internal; its steps reach the customer, its name does
+    not. (Worded for the hashing test embedder, which cannot rank the golden wording.)"""
+    world = World(triage=triage_answers("TECHNICAL_OUTAGE", 0.95, 2, 0.05), lead="technical")
+    turn = inbound("my nimbus-vpn-cli daemon fails after the vpn client update with "
+                   "VPN_ERR_TUN_DRIVER_MISMATCH")
+    assert loop(stack, world).run(turn) == "answered"
+    assert any("lead" in body["questions"] for body in world.jev)                    # Jev delegated
+    prompts = [m[-1]["content"] for m in world.model]
+    read = " ".join(p for p in prompts if "specialist of the support team" in p)
+    assert "internal knowledge kb-runbook-net-vpn-client-update-failure#" in read
+    internal_runbooks = [d.doc_id for d in seed_kb.documents()[0] if d.audience == "internal"]
+    cited = {data["doc_id"] for kind, data in published(turn) if kind == "citation"}
+    assert internal_runbooks and not cited & set(internal_runbooks)
+    (steps,) = psql(DB, f"SELECT trace -> 'steps' FROM decision_records WHERE turn_id = '{turn.turn_id}'")[0]
+    steps = json.loads(steps) if isinstance(steps, str) else steps
+    assert [s["role"] for s in steps["specialists"]] == ["technical"] and steps["retrieval"]["internal"] >= 1
+    assert not {s["doc_id"] for s in steps["retrieval"]["sources"]} & set(internal_runbooks)
 
 
 def test_anything_that_breaks_mid_turn_ends_in_an_error_message(stack):
@@ -291,6 +340,7 @@ def test_how_this_was_answered_is_summary_only_when_anonymous_and_full_once_sign
     assert full["detail"] == "full" and full["final"]["outcome"] == "composed"
     knowledge = next(agent for agent in full["agents"] if agent["id"] == "knowledge")
     assert knowledge["calls"][0]["name"] == "Retrieval lookup" and knowledge["calls"][0]["items"]
+    assert any(agent["id"] == "generalist" and agent["status"] == "success" for agent in full["agents"])
     assert not re.search(r"confiden|score|threshold", json.dumps(full))
     (why,) = api.get(f"/v1/conversations/{conversation}/decisions", params={"turn_id": turn_id},
                      headers=auth).json()
@@ -365,15 +415,19 @@ def test_qdrant_is_the_configured_one_unless_it_is_unset_or_loopback(configured,
     assert production.qdrant_url({}) == "http://127.0.0.1:6333"           # a laptop with nothing set
 
 
-def test_only_customer_visible_articles_are_seeded_public(stack):
-    """The internal policies, runbooks and tickets in deploy/vm/kb never reach the public collection
-    (KR-D2)."""
+def test_the_public_collection_holds_customer_visible_articles_and_internal_runbooks_only(stack):
+    """Internal policies, restricted articles and tickets in deploy/vm/kb never reach the public collection
+    (KR-D2); unrestricted internal runbooks do, read for customer answers but never cited."""
     client, namespace = stack
     points, _ = client.scroll(f"{namespace}public_knowledge_v1", limit=10_000,
-                              with_payload=["audience", "source_kind"])
-    assert points and all(p.payload["audience"] == "customer_visible" and p.payload["source_kind"] != "ticket"
-                          for p in points)
-    assert "kb-policy-internal-refund-approval-matrix" in seed_kb.documents()[1]
+                              with_payload=["audience", "source_kind", "source_system", "is_restricted"])
+    assert points and all(
+        p.payload["source_kind"] != "ticket" and not p.payload["is_restricted"]
+        and (p.payload["audience"] == "customer_visible" or p.payload["source_system"] == "runbooks")
+        for p in points)
+    public, skipped = seed_kb.documents()
+    assert "kb-policy-internal-refund-approval-matrix" in skipped
+    assert "kb-runbook-net-vpn-client-update-failure" in {d.doc_id for d in public}
 
 
 def test_a_customer_answer_asks_retrieval_for_customer_visible_passages_only(stack):
@@ -381,8 +435,8 @@ def test_a_customer_answer_asks_retrieval_for_customer_visible_passages_only(sta
     original = runner.s.retriever.retrieve
 
     def retrieve(*args, **kwargs):
-        seen.append(kwargs.get("audiences"))
+        seen.append((kwargs.get("audiences"), kwargs.get("sources")))
         return original(*args, **kwargs)
     runner.s.retriever.retrieve = retrieve
     assert runner.run(inbound("How do I reset my password?")) == "answered"
-    assert seen and all(audiences == ("customer_visible",) for audiences in seen)   # register S18
+    assert seen and all(read == (("customer_visible",), ("runbooks",)) for read in seen)   # register S18

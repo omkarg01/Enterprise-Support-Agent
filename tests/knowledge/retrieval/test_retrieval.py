@@ -168,7 +168,8 @@ def test_a_full_length_ranking_with_one_unknown_id_is_rejected(loaded):
 
 
 def test_a_customer_facing_search_returns_only_customer_visible_passages(loaded):
-    """KR-D2, register S18: internal runbooks and policies never reach a customer's answer."""
+    """KR-D2, register S18: internal policies never reach a customer's answer; internal runbooks only when the
+    caller reads their source system (the turn loop then does not cite them)."""
     client, _ = loaded
     namespace = f"a{uuid.uuid4().hex[:8]}_"
     with psycopg.connect(DSN, autocommit=True) as conn:
@@ -177,14 +178,22 @@ def test_a_customer_facing_search_returns_only_customer_visible_passages(loaded)
                 "lead.", audience="internal"),
             doc("refund-help", "How refunds work: refunds go back to the original card within 5 days.",
                 audience="customer_visible")])
+        Ingestion(Index(client, DIMENSIONS, namespace), embed, conn).run_batch("public", "runbooks", [
+            doc("refund-runbook", "Refunds runbook: check the card refund status with nimbus refunds.",
+                scope_source="runbooks", audience="internal")])
     try:
         search = Retriever(client, embed, fixed(rewrite_reply("refunds"), "not a ranking"), namespace)
         customer = search.retrieve("T0_ANON", "t_us", [], "how do refunds work",
                                    audiences=("customer_visible",))
         assert {s.doc_id for s in customer.sections} == {"refund-help"}
+        reader = Retriever(client, embed, fixed(rewrite_reply("refunds"), "not a ranking"), namespace)
+        # internal runbooks are read (the caller never cites them); internal policies are not
+        read = reader.retrieve("T0_ANON", "t_us", [], "how do refunds work", audiences=("customer_visible",),
+                               sources=("runbooks",))
+        assert {s.doc_id for s in read.sections} == {"refund-help", "refund-runbook"}
         staff = Retriever(client, embed, fixed(rewrite_reply("refunds"), "not a ranking"), namespace)
         assert {s.doc_id for s in staff.retrieve("T0_ANON", "t_us", [], "refunds").sections} == {
-            "refund-policy-internal", "refund-help"}             # no audience given: everything (co-pilot)
+            "refund-policy-internal", "refund-help", "refund-runbook"}   # no audience given: everything
     finally:
         for item in client.get_collections().collections:
             if item.name.startswith(namespace):
