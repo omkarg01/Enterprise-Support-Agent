@@ -1,0 +1,30 @@
+{
+  "task": "SWEEP-02",
+  "gate": "tests",
+  "kind": "command",
+  "attempt": "ed9d508c-0144-472a-a50f-6f6b33c3baf5",
+  "command": "python -m pytest tests/knowledge tests/deploy/vm -q",
+  "started_at": "2026-11-12T15:53:54.993Z",
+  "observed_at": "2026-11-12T15:55:14.335Z",
+  "exit_code": 0,
+  "signal": null,
+  "stdout": "........................................................................ [ 75%]\r\n.......................                                                  [100%]\r\n95 passed in 75.55s (0:01:15)\r\n",
+  "stderr": "",
+  "failure": null,
+  "receipt": null,
+  "revision": {
+    "commit": "d8128e2b29d836d282e5071bd0e2fcca102a8b31",
+    "dirty": true
+  },
+  "source_hash": "9d0719a28191fa50735fafb4392cf4564a0dbbe7aff8b38b07d5ee29020003b3",
+  "before_hash": "9d0719a28191fa50735fafb4392cf4564a0dbbe7aff8b38b07d5ee29020003b3",
+  "config_hash": "22b41e1ef47535696ed88fd20b9349b729b9067b0ef8e01cb2140d4e2474ab13",
+  "environment": {
+    "node": "v24.21.0",
+    "platform": "win32",
+    "arch": "x64",
+    "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+    "variables": {}
+  },
+  "hash": "589483e629a9a04ccb9febbe59a768f9d922ae97e49e45e0b565b3a89258e259"
+}

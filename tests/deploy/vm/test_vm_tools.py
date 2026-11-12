@@ -198,6 +198,26 @@ def test_the_vm_api_has_no_mock_sso_route_and_answers_its_health_check(ledger_db
         production.app({"SUPPORT_AGENT_DEV_AUTH": "1"})
 
 
+def test_the_api_runs_as_app_login_with_the_checkpointer_on_the_owner_login(ledger_db, monkeypatch):
+    """register S17: with APP_DATABASE_URL = app_login (no BYPASSRLS) the app starts and serves; the
+    statechart checkpointer keeps the owner DATABASE_URL: it creates tables, which app_login cannot."""
+    from channels import sessions
+
+    sessions.apply_schema(DB)
+    psql(DB, vm_migrate.APP_LOGIN + f"""ALTER ROLE app_login PASSWORD 'change-me';
+        GRANT CONNECT ON DATABASE "{DB}" TO app_login;""")
+    monkeypatch.setenv("DATABASE_URL", ledger_db)
+    monkeypatch.setenv("APP_DATABASE_URL", ledger_db.replace("//agent:", "//app_login:", 1))
+    monkeypatch.setenv("PII_TOKEN_KEY", "test-token-key")
+    owner_checkpointer, seen = production.checkpointer, []
+    monkeypatch.setattr(production, "checkpointer", lambda dsn: seen.append(dsn) or owner_checkpointer(dsn))
+    client = TestClient(production.app({"APP_REVISION": "r1"}))
+    assert seen == [ledger_db]
+    assert client.get("/healthz").json() == {"status": "ok", "revision": "r1"}
+    token = client.post("/v1/identity/anonymous", json={"tenant_id": "t_us"}).json()["access_token"]
+    assert client.post("/v1/identity/logout", headers={"Authorization": f"Bearer {token}"}).status_code == 204
+
+
 def test_the_vm_tools_import_nothing_the_image_lacks():
     """reindex, spend, migrate and serve run in the image: only its dependencies and the standard library."""
     import tomllib

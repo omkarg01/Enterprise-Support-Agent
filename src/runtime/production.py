@@ -9,8 +9,8 @@ that runs it: used by deploy/vm/serve.py on the VM and by `python -m runtime ser
   a loopback address) with the pinned Ollama embedder (OLLAMA_URL); query rewrite and reranking on
   the small model. Screening: Llama Guard on Ollama plus the injection patterns (an unavailable scorer gives
   the review band: reads only). PII tokens with PII_TOKEN_KEY (environment, then OpenBao). The statechart's
-  checkpointer holds session state, so it uses the database's direct endpoint through a checked pool; the
-  event log and the rest use DATABASE_URL.
+  checkpointer holds session state, so it uses the database's direct endpoint through a checked pool, as the
+  owner (DATABASE_URL); the event log and the rest use APP_DATABASE_URL (app_login, no BYPASSRLS) when set.
 """
 
 import json
@@ -145,7 +145,10 @@ def app(environ=os.environ, workers=4):
     if environ.get("SUPPORT_AGENT_DEV_AUTH") == "1":
         raise SystemExit("refusing to serve with SUPPORT_AGENT_DEV_AUTH=1: anyone could sign in with a "
                          "header")
-    loop = TurnLoop(services(environ, checkpointer(direct(database_url()))))
+    # The checkpointer creates its own tables, which app_login (APP_DATABASE_URL, S17) cannot, and they have
+    # no tenant RLS (S10): it keeps the owner login; every tenant query goes through database_url().
+    owner = os.environ.get("DATABASE_URL") or database_url()
+    loop = TurnLoop(services(environ, checkpointer(direct(owner))))
     connect = connector(database_url())
     api = build_app(None, Identity(connect, idp=None, send_otp=log_code), dispatch=Dispatcher(loop, workers))
     api.state.turn_loop = loop
