@@ -1,0 +1,30 @@
+{
+  "task": "SWEEP-04",
+  "gate": "tests",
+  "kind": "command",
+  "attempt": "b3ba1fd6-4e2d-4a91-b032-714ce29f7a5b",
+  "command": "python -m pytest tests/deploy/vm -q",
+  "started_at": "2026-11-12T17:04:15.972Z",
+  "observed_at": "2026-11-12T17:05:17.376Z",
+  "exit_code": 0,
+  "signal": null,
+  "stdout": "................................................................         [100%]\r\n64 passed in 58.05s\r\n",
+  "stderr": "",
+  "failure": null,
+  "receipt": null,
+  "revision": {
+    "commit": "074a625eda479e3c6f19a662618077f6d2f7a8f3",
+    "dirty": true
+  },
+  "source_hash": "6ad906cf5006b5324fb28888ef29fc71b82d567ef00370f758a1bbfdb18eef01",
+  "before_hash": "6ad906cf5006b5324fb28888ef29fc71b82d567ef00370f758a1bbfdb18eef01",
+  "config_hash": "a46f1cb80375788ba9e3e7b57dde720a1e3ebbda78a124eef5aaf4c13067a679",
+  "environment": {
+    "node": "v24.21.0",
+    "platform": "win32",
+    "arch": "x64",
+    "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+    "variables": {}
+  },
+  "hash": "f7a360eccad16e27b1d944333ab0d8f0ab36beb0efd030b1fb56acb89fe172ae"
+}

@@ -46,6 +46,16 @@ def sql_string(value):
     return "'" + value.replace("'", "''") + "'"
 
 
+def ensure_app_login(psql, database, password):
+    """app_login exists with CONNECT on the database. It gets a password only when created here: an existing
+    role keeps its own (the operator may have set one in Neon), so a rollout never breaks APP_DATABASE_URL."""
+    created = not psql(database, "SELECT 1 FROM pg_roles WHERE rolname = 'app_login'")
+    psql(database, APP_LOGIN)
+    psql(database, f'GRANT CONNECT ON DATABASE "{database}" TO app_login')
+    if created and password:
+        psql(database, "ALTER ROLE app_login PASSWORD " + sql_string(password))
+
+
 def psql_environment(url):
     """(main database, PG* variables) for psql from DATABASE_URL, on the direct (not pooled) host."""
     parts = urlparse(url)
@@ -100,11 +110,7 @@ def main():
     vault = os.environ.get("VAULT_DATABASE", "agent_vault")
     keys = os.environ.get("KEYS_DATABASE", "agent_keys")
     migrate.psql(main_db, BOOTSTRAP)
-    migrate.psql(main_db, APP_LOGIN)
-    migrate.psql(main_db, f'GRANT CONNECT ON DATABASE "{main_db}" TO app_login')
-    password = env.get("PGPASSWORD") or os.environ.get("APP_LOGIN_PASSWORD")
-    if password:
-        migrate.psql(main_db, "ALTER ROLE app_login PASSWORD " + sql_string(password))
+    ensure_app_login(migrate.psql, main_db, env.get("PGPASSWORD") or os.environ.get("APP_LOGIN_PASSWORD"))
     for database in (vault, keys):
         migrate.ensure_database(database, maintenance_db=main_db)
         migrate.psql(database, BOOTSTRAP)

@@ -4,7 +4,7 @@
 
 - workflow: new-product
 - phase: verify
-- plan approval: Intelligent_developer_123 at 2026-11-12T16:16:15.768Z
+- plan approval: Intelligent_developer_123 at 2026-11-12T16:57:27.908Z
 
 ## Tasks
 
@@ -2038,5 +2038,13 @@
 - requirements: NFR-2, AC-11
 - scope: src/runtime/, tests/deploy/vm/, .env.example
 - gates: tests: python -m pytest tests/deploy/vm tests/runtime tests/channels -q, independent-review: pass
+- next: Independent review (human), then task complete
+
+### SWEEP-04 — S17 follow-up: deploy/vm/migrate.py sets app_login's password only when it creates the role (never resets an existing one, so the Neon password the user set survives rollouts); B20 option A: the Ollama service keeps its models loaded (OLLAMA_KEEP_ALIVE=-1) so Llama Guard no longer times out on cold starts and turns stop being screened review
+
+- state/risk: done / medium
+- requirements: NFR-2
+- scope: deploy/vm/, deploy/compose.yaml, tests/deploy/vm/
+- gates: tests: python -m pytest tests/deploy/vm -q, independent-review: pass
 - next: Independent review (human), then task complete
 

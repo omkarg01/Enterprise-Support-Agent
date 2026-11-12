@@ -3,6 +3,7 @@ month's spend against the cap (NFR-36, AC-15), the migration helpers, and the AP
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import types
@@ -182,6 +183,35 @@ def test_app_login_cannot_bypass_row_level_security(ledger_db):
         ["f", "t"]]
     with pytest.raises(PsqlError, match="permission denied"):
         psql(DB, "SET ROLE app_login; SELECT * FROM usage_ledger")
+
+
+def test_migrate_sets_the_app_login_password_only_when_it_creates_the_role(ledger_db):
+    """A rollout must not reset a password the operator set in Neon (APP_DATABASE_URL would stop working)."""
+    calls = []
+
+    def fake(exists):
+        return lambda database, sql: calls.append(sql) or ([["1"]] if exists and "pg_roles" in sql else [])
+
+    vm_migrate.ensure_app_login(fake(exists=False), "db", "owner-pw")
+    assert calls[-1] == "ALTER ROLE app_login PASSWORD 'owner-pw'"
+    calls.clear()
+    vm_migrate.ensure_app_login(fake(exists=True), "db", "owner-pw")
+    assert not any("PASSWORD" in sql for sql in calls)
+
+    psql(DB, vm_migrate.APP_LOGIN + "ALTER ROLE app_login PASSWORD 'change-me';")
+    stored = "SELECT rolpassword FROM pg_authid WHERE rolname = 'app_login'"
+    before = psql(DB, stored)
+    vm_migrate.ensure_app_login(psql, DB, "a-different-owner-password")
+    assert psql(DB, stored) == before
+
+
+def test_the_vm_ollama_keeps_its_models_loaded():
+    """B20: a cold Llama Guard load (~9.5 s on the VM) nears the 10 s screening timeout, and Ollama unloads
+    idle models after 5 minutes, so nearly every turn was screened 'review'."""
+    files = ["-f", "deploy/compose.yaml", "-f", "deploy/vm/compose.vm.yaml", "--env-file", ".env.example"]
+    config = subprocess.run(["docker", "compose", *files, "config", "--format", "json"], cwd=ROOT, check=True,
+                            capture_output=True, text=True, env={**os.environ, "APP_IMAGE": "x"})
+    assert json.loads(config.stdout)["services"]["ollama"]["environment"]["OLLAMA_KEEP_ALIVE"] == "-1"
 
 
 # The API entry point ----------------------------------------------------------------------------------------
