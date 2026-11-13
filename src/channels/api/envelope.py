@@ -20,6 +20,7 @@ class Principal(BaseModel):
     tenant_id: str
     principal_id: str
     assurance_tier: str = "T0_ANON"
+    session_id: str | None = None   # the live session the token names (its sid): tools act through it
 
 
 class TurnRequest(BaseModel):
@@ -33,6 +34,7 @@ class InboundTurn(BaseModel):
     tenant_id: str
     principal_id: str
     assurance_tier: str
+    session_id: str | None = None
     conversation_id: str
     turn_id: str
     channel: str = "WEB_WIDGET"

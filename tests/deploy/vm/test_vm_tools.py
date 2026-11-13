@@ -3,6 +3,7 @@ month's spend against the cap (NFR-36, AC-15), the migration helpers, and the AP
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import types
@@ -148,7 +149,7 @@ def test_every_module_owning_a_schema_is_migrated():
     names = vm_migrate.module_schemas()
     assert len(names) == len(set(names)) >= 17
     assert {"channels.api.turns", "hitl.queues", "cost.budgets", "evals.datasets",
-            "tools.audit"} <= set(names)
+            "tools.audit", "tools.nimbus"} <= set(names)
 
 
 def test_schemas_that_depend_on_each_other_are_applied_in_rounds():
@@ -184,6 +185,35 @@ def test_app_login_cannot_bypass_row_level_security(ledger_db):
         psql(DB, "SET ROLE app_login; SELECT * FROM usage_ledger")
 
 
+def test_migrate_sets_the_app_login_password_only_when_it_creates_the_role(ledger_db):
+    """A rollout must not reset a password the operator set in Neon (APP_DATABASE_URL would stop working)."""
+    calls = []
+
+    def fake(exists):
+        return lambda database, sql: calls.append(sql) or ([["1"]] if exists and "pg_roles" in sql else [])
+
+    vm_migrate.ensure_app_login(fake(exists=False), "db", "owner-pw")
+    assert calls[-1] == "ALTER ROLE app_login PASSWORD 'owner-pw'"
+    calls.clear()
+    vm_migrate.ensure_app_login(fake(exists=True), "db", "owner-pw")
+    assert not any("PASSWORD" in sql for sql in calls)
+
+    psql(DB, vm_migrate.APP_LOGIN + "ALTER ROLE app_login PASSWORD 'change-me';")
+    stored = "SELECT rolpassword FROM pg_authid WHERE rolname = 'app_login'"
+    before = psql(DB, stored)
+    vm_migrate.ensure_app_login(psql, DB, "a-different-owner-password")
+    assert psql(DB, stored) == before
+
+
+def test_the_vm_ollama_keeps_its_models_loaded():
+    """B20: a cold Llama Guard load (~9.5 s on the VM) nears the 10 s screening timeout, and Ollama unloads
+    idle models after 5 minutes, so nearly every turn was screened 'review'."""
+    files = ["-f", "deploy/compose.yaml", "-f", "deploy/vm/compose.vm.yaml", "--env-file", ".env.example"]
+    config = subprocess.run(["docker", "compose", *files, "config", "--format", "json"], cwd=ROOT, check=True,
+                            capture_output=True, text=True, env={**os.environ, "APP_IMAGE": "x"})
+    assert json.loads(config.stdout)["services"]["ollama"]["environment"]["OLLAMA_KEEP_ALIVE"] == "-1"
+
+
 # The API entry point ----------------------------------------------------------------------------------------
 
 def test_the_vm_api_has_no_mock_sso_route_and_answers_its_health_check(ledger_db, monkeypatch):
@@ -198,17 +228,37 @@ def test_the_vm_api_has_no_mock_sso_route_and_answers_its_health_check(ledger_db
         production.app({"SUPPORT_AGENT_DEV_AUTH": "1"})
 
 
+def test_the_api_runs_as_app_login_with_the_checkpointer_on_the_owner_login(ledger_db, monkeypatch):
+    """register S17: with APP_DATABASE_URL = app_login (no BYPASSRLS) the app starts and serves; the
+    statechart checkpointer keeps the owner DATABASE_URL: it creates tables, which app_login cannot."""
+    from channels import sessions
+
+    sessions.apply_schema(DB)
+    psql(DB, vm_migrate.APP_LOGIN + f"""ALTER ROLE app_login PASSWORD 'change-me';
+        GRANT CONNECT ON DATABASE "{DB}" TO app_login;""")
+    monkeypatch.setenv("DATABASE_URL", ledger_db)
+    monkeypatch.setenv("APP_DATABASE_URL", ledger_db.replace("//agent:", "//app_login:", 1))
+    monkeypatch.setenv("PII_TOKEN_KEY", "test-token-key")
+    owner_checkpointer, seen = production.checkpointer, []
+    monkeypatch.setattr(production, "checkpointer", lambda dsn: seen.append(dsn) or owner_checkpointer(dsn))
+    client = TestClient(production.app({"APP_REVISION": "r1"}))
+    assert seen == [ledger_db]
+    assert client.get("/healthz").json() == {"status": "ok", "revision": "r1"}
+    token = client.post("/v1/identity/anonymous", json={"tenant_id": "t_us"}).json()["access_token"]
+    assert client.post("/v1/identity/logout", headers={"Authorization": f"Bearer {token}"}).status_code == 204
+
+
 def test_the_vm_tools_import_nothing_the_image_lacks():
     """reindex, spend, migrate and serve run in the image: only its dependencies and the standard library."""
     import tomllib
 
     allowed = {"psycopg", "qdrant_client", "httpx", "uvicorn", "fastapi"} | set(sys.stdlib_module_names)
     allowed |= {"truststore"}  # optional: imported under try / except ImportError, laptop only
-    packages = {"channels", "core", "cost", "data", "knowledge", "evals", "runtime"}
+    packages = {"channels", "core", "cost", "data", "knowledge", "evals", "runtime", "tools"}
     deps = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
     assert {"qdrant-client>=1.12,<1.13", "httpx>=0.27", "uvicorn>=0.30", "fastapi>=0.115"} <= set(deps)
     import ast
-    for name in ("reindex", "spend", "migrate", "serve", "seed_kb"):
+    for name in ("reindex", "spend", "migrate", "serve", "seed_kb", "seed_nimbus"):
         tree = ast.parse((ROOT / "deploy" / "vm" / f"{name}.py").read_text(encoding="utf-8"))
         roots = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         roots |= {n.module.split(".")[0] for n in ast.walk(tree)

@@ -122,7 +122,8 @@ def test_every_reply_carries_the_disclosure_and_the_human_option():
     # the human option appears once, after the other actions
     assert reply["actions"] == [{"id": "rate", "label": "Rate"}, TALK_TO_HUMAN]
     assert disclose({"text": "Hi"})["actions"] == [TALK_TO_HUMAN]
-    assert DISCLOSURE in (ROOT / "web" / "index.html").read_text(encoding="utf-8")  # same words as the banner
+    banner = (ROOT / "web" / "components" / "portal.tsx").read_text(encoding="utf-8")
+    assert all(sentence in banner for sentence in DISCLOSURE.split(". "))  # same words as the portal's banner
 
 
 def test_transcripts_are_archived_for_two_years_out_of_the_runtimes_reach(archive):

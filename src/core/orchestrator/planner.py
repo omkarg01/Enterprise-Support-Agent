@@ -19,6 +19,8 @@ def after_step(state, step, read_only_tools):
     if step.action and step.action not in read_only_tools:
         return {**update, "next_stage": Stage.ESCALATED_HITL.value,
                 "error": f"diagnosis may only use read-only tools; {step.action!r} needs an SOP"}
+    if step.outcome == "answer" and not step.answer:  # nothing to tell the customer: a person, not "resolved"
+        return {**update, "next_stage": Stage.ESCALATED_HITL.value, "error": step.thought}
     if step.outcome == "answer":
         return {**update, "next_stage": Stage.RESOLVED.value, "final_response": step.answer}
     if step.outcome == "needs_sop":

@@ -21,6 +21,10 @@ TENANT_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 PUBLIC = "public"
 VERSION = "v1"
 WORD = re.compile(r"[a-z0-9]+(?:[._-][a-z0-9]+)*")  # keeps error codes like e-1042 or v2.3.1 whole
+# Every payload field a filter uses: Qdrant Cloud refuses filtered search on an unindexed field (B18).
+KEYWORD, BOOL = models.PayloadSchemaType.KEYWORD, models.PayloadSchemaType.BOOL
+PAYLOAD_INDEXES = {"doc_id": KEYWORD, "source_system": KEYWORD, "acl_groups": KEYWORD, "audience": KEYWORD,
+                   "is_restricted": BOOL}
 
 
 def collection(scope, namespace=""):
@@ -66,6 +70,8 @@ class Index:
         self.client, self.dimensions, self.namespace = client, dimensions, namespace
 
     def ensure(self, scope):
+        """The collection, created if missing, with every payload index; an older collection gains the missing
+        ones, so a reindex repairs it."""
         name = collection(scope, self.namespace)
         if not self.client.collection_exists(name):
             self.client.create_collection(
@@ -73,8 +79,10 @@ class Index:
                 vectors_config={"dense": models.VectorParams(size=self.dimensions,
                                                              distance=models.Distance.COSINE)},
                 sparse_vectors_config={"bm25": models.SparseVectorParams(modifier=models.Modifier.IDF)})
-            for field in ("doc_id", "source_system"):
-                self.client.create_payload_index(name, field, models.PayloadSchemaType.KEYWORD)
+        indexed = self.client.get_collection(name).payload_schema
+        for field, schema in PAYLOAD_INDEXES.items():
+            if field not in indexed:
+                self.client.create_payload_index(name, field, schema, wait=True)
         return name
 
     def replace_document(self, scope, doc_id, chunks, vectors):

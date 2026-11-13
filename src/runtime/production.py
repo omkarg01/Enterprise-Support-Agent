@@ -9,8 +9,10 @@ that runs it: used by deploy/vm/serve.py on the VM and by `python -m runtime ser
   a loopback address) with the pinned Ollama embedder (OLLAMA_URL); query rewrite and reranking on
   the small model. Screening: Llama Guard on Ollama plus the injection patterns (an unavailable scorer gives
   the review band: reads only). PII tokens with PII_TOKEN_KEY (environment, then OpenBao). The statechart's
-  checkpointer holds session state, so it uses the database's direct endpoint through a checked pool; the
-  event log and the rest use DATABASE_URL.
+  checkpointer holds session state, so it uses the database's direct endpoint through a checked pool, as the
+  owner (DATABASE_URL); the event log and the rest use APP_DATABASE_URL (app_login, no BYPASSRLS) when set.
+- Tools: the specialists' read-only tools.nimbus catalog through tools.execution.Executor, audited (S11),
+  with on-behalf-of tokens from the customer's live session (AGENT-02).
 """
 
 import json
@@ -43,6 +45,9 @@ from safety.governance.records import DecisionLog
 from safety.pii.tokens import Tokenizer
 from safety.screening.pipeline import Screener
 from safety.screening.scorers import llama_guard, pattern_injection
+from tools import nimbus
+from tools.audit import AuditLog
+from tools.execution import Executor
 
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = ROOT / "deploy" / "vm" / "models.json"
@@ -127,12 +132,18 @@ def services(environ, checkpointer, lock=None):
     qdrant = QdrantClient(url=qdrant_url(environ),
                           api_key=environ.get("QDRANT_API_KEY") or None)
     connect = connector(database_url())
+    screener = Screener(llama_guard(ollama, lock["screening"]["model"]), pattern_injection)
+    identity = Identity(connect)  # sessions and on-behalf-of tokens; its key never leaves this process
+    tools = nimbus.catalog(connect, identity)
+    # ponytail: no key store; every catalog tool is argument-free, so an audit record has nothing to seal (a
+    # tool with arguments fails closed, AUDIT_UNAVAILABLE, until data.keys.KeyStore is wired here)
+    executor = Executor(tools, nimbus.SYSTEMS, screener, identity=identity, audit=AuditLog(connect, None))
     return Services(
         engine=DecisionEngine(jev), router=Router(provider_tiers),
         retriever=Retriever(qdrant, ollama_embed(ollama, lock["embedding"]["model"]), complete),
-        screener=Screener(llama_guard(ollama, lock["screening"]["model"]), pattern_injection),
-        tokens=Tokenizer(load_secret("PII_TOKEN_KEY")), complete=complete, connect=connect,
-        checkpointer=checkpointer, decisions=DecisionLog(connect))
+        screener=screener, tokens=Tokenizer(load_secret("PII_TOKEN_KEY")), complete=complete,
+        connect=connect, checkpointer=checkpointer, decisions=DecisionLog(connect), executor=executor,
+        tools=tools)
 
 
 def log_code(tenant_id, user_id, code):
@@ -145,7 +156,10 @@ def app(environ=os.environ, workers=4):
     if environ.get("SUPPORT_AGENT_DEV_AUTH") == "1":
         raise SystemExit("refusing to serve with SUPPORT_AGENT_DEV_AUTH=1: anyone could sign in with a "
                          "header")
-    loop = TurnLoop(services(environ, checkpointer(direct(database_url()))))
+    # The checkpointer creates its own tables, which app_login (APP_DATABASE_URL, S17) cannot, and they have
+    # no tenant RLS (S10): it keeps the owner login; every tenant query goes through database_url().
+    owner = os.environ.get("DATABASE_URL") or database_url()
+    loop = TurnLoop(services(environ, checkpointer(direct(owner))))
     connect = connector(database_url())
     api = build_app(None, Identity(connect, idp=None, send_otp=log_code), dispatch=Dispatcher(loop, workers))
     api.state.turn_loop = loop

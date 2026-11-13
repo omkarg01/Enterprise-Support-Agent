@@ -41,6 +41,10 @@ from safety.pii.tokens import Tokenizer
 from safety.screening.pipeline import Screener
 from safety.screening.scorers import pattern_injection
 from tests.knowledge.ingest.test_ingest import DIMENSIONS, embed
+from tools import audit as tool_audit
+from tools import nimbus
+from tools.audit import AuditLog
+from tools.execution import Executor
 
 ROOT = Path(__file__).resolve().parents[2]
 DB = "test_runtime"
@@ -58,18 +62,30 @@ def triage_answers(intent, confidence, severity, missing):
             "missing_details": {"type": "noul", "noul": missing}}
 
 
-class World:
-    """The scripted outside world, with a log of everything that reached it."""
+ANSWER = "Choose \"Forgot password\" on the sign-in page; the reset link works for 30 minutes."
+PASSAGE_ID = re.compile(r"<<<DATA (?:internal )?knowledge (\S+?)>>>")
+RECORD_ID = re.compile(r"<<<DATA (nimbus_\w+\.\w+)>>>")
 
-    def __init__(self, triage=None, model_down=False):
+
+class World:
+    """The scripted outside world, with a log of everything that reached it. claims: what every specialist
+    reports (None: one claim citing every passage it was shown)."""
+
+    def __init__(self, triage=None, model_down=False, lead="generalist", claims=None, read=None):
         self.triage = triage or triage_answers("GENERAL_INQUIRY", 0.95, 1, 0.05)
         self.model_down, self.jev, self.model = model_down, [], []
+        self.lead, self.claims, self.read = lead, claims, read   # read: the record a specialist asks for
 
     def jev_reply(self, request):
         body = json.loads(request.content)
         self.jev.append(body)
         if "intent" in body["questions"]:
             answers = self.triage
+        elif "lead" in body["questions"]:               # delegation: one lead, nobody joins
+            answers = {qid: {"type": "noul", "noul": 0.05} for qid in body["questions"]}
+            answers["lead"] = {"type": "choice", "choice": self.lead, "confidence": 0.9}
+        elif "redirect" in body["questions"]:
+            answers = {"redirect": {"type": "noul", "noul": 0.05}}
         else:
             answers = {"difficulty": {"type": "score", "score": 1.0, "confidence": 0.9,
                                       "probabilities": {"0": 0.05, "1": 0.85, "2": 0.1, "3": 0, "4": 0}}}
@@ -82,14 +98,24 @@ class World:
             return httpx.Response(503, json={"error": "overloaded"})
         prompt = messages[-1]["content"]
         if "standalone search query" in prompt:
-            text = json.dumps({"standalone_query": "reset password", "exact_identifiers": []})
+            latest = prompt.split("Latest message:\n", 1)[1].strip()
+            text = json.dumps({"standalone_query": latest, "exact_identifiers": []})
         elif "Classify the customer conversation" in prompt or "Classify the customer message" in prompt:
             text = json.dumps({"intent": "GENERAL_INQUIRY", "severity": 1, "missing_details": False,
                                "confidence": 0.95})
         elif "Ask the customer one short" in prompt:
             text = "Which page were you on when the error appeared?"
-        elif "knowledge" in prompt:
-            text = "Choose \"Forgot password\" on the sign-in page; the reset link works for 30 minutes."
+        elif "specialist of the support team" in prompt and self.read and f"- {self.read}:" in prompt:
+            text = json.dumps({"action": self.read})
+        elif "specialist of the support team" in prompt and RECORD_ID.search(prompt):
+            text = json.dumps([{"topic": "open_invoice", "text": "Your latest invoice is open.",
+                                "evidence": RECORD_ID.findall(prompt)}])
+        elif "specialist of the support team" in prompt:
+            ids = PASSAGE_ID.findall(prompt)
+            text = json.dumps(self.claims if self.claims is not None else
+                              [{"topic": "answer", "text": ANSWER, "evidence": ids}] if ids else [])
+        elif "specialist findings" in prompt:
+            text = ANSWER
         else:
             text = "not a ranking"
         return httpx.Response(200, json={"choices": [{"message": {"content": text}}],
@@ -103,9 +129,12 @@ def stack():
     psql("postgres", f'DROP DATABASE IF EXISTS "{DB}" WITH (FORCE)')
     psql("postgres", f'CREATE DATABASE "{DB}"')
     migrate("main", DB)
-    for module in (events, turns, sessions, otp, records, ingest):
+    for module in (events, turns, sessions, otp, records, ingest, tool_audit, nimbus):
         module.apply_schema(DB)
-    psql(DB, "INSERT INTO tenants (id, name, region) VALUES ('t_us', 'Acme', 'US')")
+    psql(DB, "INSERT INTO tenants (id, name, region) VALUES ('t_us', 'Acme', 'US'), ('t_eu', 'G', 'EU')")
+    for tenant, principal, company in (("t_us", "sarah", "Acme"), ("t_us", "bob", "Bobco"),
+                                       ("t_eu", "sarah", "Globex")):
+        nimbus.seed(connector(DSN), tenant, principal, company=company)
     client, namespace = QdrantClient(url="http://127.0.0.1:6333"), f"rt{uuid.uuid4().hex[:8]}_"
     with psycopg.connect(DSN, autocommit=True) as conn:
         report = seed_kb.seed(client, embed, DIMENSIONS, conn, namespace=namespace)
@@ -116,7 +145,7 @@ def stack():
             client.delete_collection(item.name)
 
 
-def loop(stack, world, jev=True):
+def loop(stack, world, jev=True, tools=False):
     client, namespace = stack
     model = openai_compatible("small", "https://llm.test/v1", "m", "k", transport=httpx.MockTransport(
         world.model_reply))
@@ -126,16 +155,28 @@ def loop(stack, world, jev=True):
     complete = production.small_model([[model], []])
     connect = connector(DSN)
     retriever = Retriever(client, embed, complete, namespace)
-    return TurnLoop(Services(engine=engine, router=router, retriever=retriever,
-                             screener=Screener(lambda text: (0.0, []), pattern_injection),
+    screener = Screener(lambda text: (0.0, []), pattern_injection)
+    extra = {}
+    if tools:  # as runtime.production.services composes them
+        identity = Identity(connect)
+        catalog = nimbus.catalog(connect, identity)
+        extra = {"tools": catalog, "executor": Executor(catalog, nimbus.SYSTEMS, screener, identity=identity,
+                                                        audit=AuditLog(connect, lambda: None))}
+    return TurnLoop(Services(engine=engine, router=router, retriever=retriever, screener=screener,
                              tokens=Tokenizer(b"runtime-test-key"), complete=complete, connect=connect,
-                             checkpointer=InMemorySaver(), decisions=DecisionLog(connect)))
+                             checkpointer=InMemorySaver(), decisions=DecisionLog(connect), **extra))
 
 
-def inbound(text, conversation=None, tier="T0_ANON"):
-    return InboundTurn(tenant_id="t_us", principal_id="anon:1", assurance_tier=tier,
+def inbound(text, conversation=None, tier="T0_ANON", principal="anon:1", tenant="t_us", session=None):
+    return InboundTurn(tenant_id=tenant, principal_id=principal, assurance_tier=tier, session_id=session,
                        conversation_id=conversation or f"c-{uuid.uuid4().hex[:8]}", turn_id=str(uuid.uuid4()),
                        content=text, attachment_refs=[])
+
+
+def signed_in(tier, principal="sarah", tenant="t_us"):
+    """A live session, as sign-in creates it."""
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        return sessions.start(conn, tenant, principal, tier)
 
 
 def published(turn):
@@ -214,14 +255,47 @@ def test_with_jev_and_every_model_down_triage_asks_and_the_turn_still_ends_in_a_
     assert loop(stack, world, jev=False).run(turn) == "handed_off"         # register B10, contained here
 
 
-def test_with_the_knowledge_base_down_the_turn_is_still_answered_without_passages(stack):
+def test_with_the_knowledge_base_down_no_claim_is_made_and_a_person_takes_it(stack):
     world = World()
     runner = loop(stack, world)
     runner.s.retriever.retrieve = lambda *args, **kwargs: 1 / 0          # the embedder or the index is down
     turn = inbound("How do I reset my password?")
-    assert runner.run(turn) == "answered"
+    assert runner.run(turn) == "handed_off"
     assert "citation" not in [kind for kind, _ in published(turn)]
-    assert "(no knowledge passage matched)" in world.model[-1][-1]["content"]
+    assert "(no knowledge passage matched)" in world.model[-1][-1]["content"]   # the specialist read nothing
+
+
+def test_when_no_passage_answers_it_the_case_goes_to_a_person_and_is_not_logged_as_answered(stack):
+    """Register: a "my articles don't cover this" reply was logged as answer / RESOLVED with unrelated
+    citations. No claim now means no evidence: a hand-off, a distinct reason, nothing cited."""
+    turn = inbound("How do I reset my password?")
+    assert loop(stack, World(claims=[])).run(turn) == "handed_off"
+    assert [kind for kind, _ in published(turn)][-1] == "handoff"
+    assert "citation" not in [kind for kind, _ in published(turn)]
+    (row,) = psql(DB, f"SELECT decision, reason, trace -> 'path' FROM decision_records "
+                      f"WHERE turn_id = '{turn.turn_id}'")
+    assert row[0] == "escalate" and row[1] == "Our documentation does not cover this, so a specialist will " \
+        "look at it with you." and "ESCALATED_HITL" in row[2]
+
+
+def test_the_lead_specialist_jev_picks_answers_and_an_internal_runbook_is_used_but_never_cited(stack):
+    """Golden question 16's case: the VPN runbook is internal; its steps reach the customer, its name does
+    not. (Worded for the hashing test embedder, which cannot rank the golden wording.)"""
+    world = World(triage=triage_answers("TECHNICAL_OUTAGE", 0.95, 2, 0.05), lead="technical")
+    turn = inbound("my nimbus-vpn-cli daemon fails after the vpn client update with "
+                   "VPN_ERR_TUN_DRIVER_MISMATCH")
+    assert loop(stack, world).run(turn) == "answered"
+    assert any("lead" in body["questions"] for body in world.jev)                    # Jev delegated
+    prompts = [m[-1]["content"] for m in world.model]
+    read = " ".join(p for p in prompts if "specialist of the support team" in p)
+    assert "internal knowledge kb-runbook-net-vpn-client-update-failure#" in read
+    internal_runbooks = [d.doc_id for d in seed_kb.documents()[0] if d.audience == "internal"]
+    cited = {data["doc_id"] for kind, data in published(turn) if kind == "citation"}
+    assert internal_runbooks and not cited & set(internal_runbooks)
+    (steps,) = psql(DB, f"SELECT trace -> 'steps' FROM decision_records WHERE turn_id = '{turn.turn_id}'")[0]
+    steps = json.loads(steps) if isinstance(steps, str) else steps
+    assert [s["role"] for s in steps["specialists"]] == ["technical"] and steps["retrieval"]["internal"] >= 1
+    assert not {s["doc_id"] for s in steps["retrieval"]["sources"]} & set(internal_runbooks)
 
 
 def test_anything_that_breaks_mid_turn_ends_in_an_error_message(stack):
@@ -291,6 +365,7 @@ def test_how_this_was_answered_is_summary_only_when_anonymous_and_full_once_sign
     assert full["detail"] == "full" and full["final"]["outcome"] == "composed"
     knowledge = next(agent for agent in full["agents"] if agent["id"] == "knowledge")
     assert knowledge["calls"][0]["name"] == "Retrieval lookup" and knowledge["calls"][0]["items"]
+    assert any(agent["id"] == "generalist" and agent["status"] == "success" for agent in full["agents"])
     assert not re.search(r"confiden|score|threshold", json.dumps(full))
     (why,) = api.get(f"/v1/conversations/{conversation}/decisions", params={"turn_id": turn_id},
                      headers=auth).json()
@@ -365,15 +440,19 @@ def test_qdrant_is_the_configured_one_unless_it_is_unset_or_loopback(configured,
     assert production.qdrant_url({}) == "http://127.0.0.1:6333"           # a laptop with nothing set
 
 
-def test_only_customer_visible_articles_are_seeded_public(stack):
-    """The internal policies, runbooks and tickets in deploy/vm/kb never reach the public collection
-    (KR-D2)."""
+def test_the_public_collection_holds_customer_visible_articles_and_internal_runbooks_only(stack):
+    """Internal policies, restricted articles and tickets in deploy/vm/kb never reach the public collection
+    (KR-D2); unrestricted internal runbooks do, read for customer answers but never cited."""
     client, namespace = stack
     points, _ = client.scroll(f"{namespace}public_knowledge_v1", limit=10_000,
-                              with_payload=["audience", "source_kind"])
-    assert points and all(p.payload["audience"] == "customer_visible" and p.payload["source_kind"] != "ticket"
-                          for p in points)
-    assert "kb-policy-internal-refund-approval-matrix" in seed_kb.documents()[1]
+                              with_payload=["audience", "source_kind", "source_system", "is_restricted"])
+    assert points and all(
+        p.payload["source_kind"] != "ticket" and not p.payload["is_restricted"]
+        and (p.payload["audience"] == "customer_visible" or p.payload["source_system"] == "runbooks")
+        for p in points)
+    public, skipped = seed_kb.documents()
+    assert "kb-policy-internal-refund-approval-matrix" in skipped
+    assert "kb-runbook-net-vpn-client-update-failure" in {d.doc_id for d in public}
 
 
 def test_a_customer_answer_asks_retrieval_for_customer_visible_passages_only(stack):
@@ -381,8 +460,80 @@ def test_a_customer_answer_asks_retrieval_for_customer_visible_passages_only(sta
     original = runner.s.retriever.retrieve
 
     def retrieve(*args, **kwargs):
-        seen.append(kwargs.get("audiences"))
+        seen.append((kwargs.get("audiences"), kwargs.get("sources")))
         return original(*args, **kwargs)
     runner.s.retriever.retrieve = retrieve
     assert runner.run(inbound("How do I reset my password?")) == "answered"
-    assert seen and all(audiences == ("customer_visible",) for audiences in seen)   # register S18
+    assert seen and all(read == (("customer_visible",), ("runbooks",)) for read in seen)   # register S18
+
+
+# Tools (AGENT-02) -------------------------------------------------------------------------------------------
+
+def specialist_prompts(world):
+    return [m[-1]["content"] for m in world.model if "specialist of the support team" in m[-1]["content"]]
+
+
+def tool_audit_of(turn):
+    return [(r["tool"], r["outcome"], r["user_id"], r["error_code"])
+            for r in AuditLog(connector(DSN), lambda: None).read(turn.tenant_id, turn.conversation_id)]
+
+
+def trace_steps(turn):
+    (steps,) = psql(DB, f"SELECT trace -> 'steps' FROM decision_records WHERE turn_id = '{turn.turn_id}'")[0]
+    return json.loads(steps) if isinstance(steps, str) else steps
+
+
+def test_a_signed_in_customer_is_answered_from_their_own_record_read_through_the_audited_executor(stack):
+    world = World(lead="billing", read="nimbus_account.my_invoices")
+    turn = inbound("Is my latest invoice paid?", tier="T2_SSO", principal="sarah", session=signed_in("T2_SSO"))
+    assert loop(stack, world, tools=True).run(turn) == "answered"
+    offered, read = specialist_prompts(world)
+    assert "- nimbus_account.my_invoices:" in offered and "- nimbus_account.my_account:" not in offered
+    assert "<<<DATA nimbus_account.my_invoices>>>" in read and "inv-sarah-1" in read
+    assert "Bobco" not in read and "Globex" not in read and "inv-bob" not in read     # own rows, own tenant
+    assert tool_audit_of(turn) == [("nimbus_account.my_invoices", "ok", "sarah", None)]
+    assert trace_steps(turn)["tools"] == [{"role": "billing", "tool": "nimbus_account.my_invoices"}]
+    assert [kind for kind, _ in published(turn)][-1] == "final"
+
+
+def test_an_anonymous_customer_is_offered_no_account_record_and_is_answered_from_passages(stack):
+    world = World(lead="billing", read="nimbus_account.my_invoices")
+    turn = inbound("How do I reset my password?", principal="anon:7", session=signed_in("T0_ANON", "anon:7"))
+    assert loop(stack, world, tools=True).run(turn) == "answered"
+    assert not any("To read one" in prompt for prompt in specialist_prompts(world))
+    assert tool_audit_of(turn) == [] and "tools" not in trace_steps(turn)
+
+
+def test_without_jev_the_generalist_may_read_any_record_the_customers_tier_allows(stack):
+    world = World(read="nimbus_support.my_tickets")
+    turn = inbound("What is the status of my open ticket?", tier="T1_VERIFIED", principal="sarah",
+                   session=signed_in("T1_VERIFIED"))
+    assert loop(stack, world, jev=False, tools=True).run(turn) == "answered"
+    offered = specialist_prompts(world)[0]
+    assert {"- nimbus_status.service_status:", "- nimbus_support.my_tickets:",
+            "- nimbus_support.my_subscriptions:"} <= set(re.findall(r"- nimbus_\w+\.\w+:", offered))
+    assert "my_invoices" not in offered and "my_account" not in offered               # SSO only
+    assert tool_audit_of(turn) == [("nimbus_support.my_tickets", "ok", "sarah", None)]
+
+
+def test_a_turn_from_a_session_that_has_ended_reads_nothing(stack):
+    world = World(lead="billing", read="nimbus_account.my_invoices")
+    session = signed_in("T2_SSO")
+    with psycopg.connect(DSN, autocommit=True) as conn:
+        sessions.end(conn, "t_us", session)
+    turn = inbound("Is my latest invoice paid?", tier="T2_SSO", principal="sarah", session=session)
+    loop(stack, world, tools=True).run(turn)
+    assert tool_audit_of(turn) == [("nimbus_account.my_invoices", "failed", "sarah", "AUTHENTICATION_EXPIRED")]
+    assert not any("<<<DATA nimbus_" in prompt for prompt in specialist_prompts(world))
+
+
+def test_the_api_hands_the_turn_the_session_its_token_names(stack, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", DSN)
+    identity, dispatched = Identity(connector(DSN), idp=None), []
+    api = TestClient(build_app(None, identity, dispatch=dispatched.append))
+    token = api.post("/v1/identity/anonymous", json={"tenant_id": "t_us"}).json()["access_token"]
+    reply = api.post(f"/v1/conversations/c-{uuid.uuid4().hex[:8]}/turns", json={"content": "Hello"},
+                     headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "k-1"})
+    assert reply.status_code == 202
+    (turn,) = dispatched
+    assert turn.session_id and identity.session_principal("t_us", turn.session_id)[0] == turn.principal_id

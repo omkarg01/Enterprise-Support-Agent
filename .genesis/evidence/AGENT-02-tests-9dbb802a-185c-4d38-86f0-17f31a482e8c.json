@@ -1,0 +1,30 @@
+{
+  "task": "AGENT-02",
+  "gate": "tests",
+  "kind": "command",
+  "attempt": "9dbb802a-185c-4d38-86f0-17f31a482e8c",
+  "command": "python -m pytest tests/agents tests/runtime tests/e2e/test_scenario_multiagent.py tests/channels -q",
+  "started_at": "2026-11-13T17:11:14.713Z",
+  "observed_at": "2026-11-13T17:12:04.359Z",
+  "exit_code": 0,
+  "signal": null,
+  "stdout": "........................................................................ [ 40%]\r\n........................................................................ [ 81%]\r\n................................                                         [100%]\r\n176 passed in 46.09s\r\n",
+  "stderr": "",
+  "failure": null,
+  "receipt": null,
+  "revision": {
+    "commit": "b0f2c690a8114286e7ab311a4c359b76fdea0079",
+    "dirty": true
+  },
+  "source_hash": "20db9eb74c9d8c4e89fc6319e934da79f22e6fb6041d9ade75a0c39080688ea5",
+  "before_hash": "20db9eb74c9d8c4e89fc6319e934da79f22e6fb6041d9ade75a0c39080688ea5",
+  "config_hash": "83abcb984937eea8e62ae9c24080d45dc9a77c391ddec396b31bfcaa58769c38",
+  "environment": {
+    "node": "v24.21.0",
+    "platform": "win32",
+    "arch": "x64",
+    "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+    "variables": {}
+  },
+  "hash": "7d2a137b2e605338054e91f91920a6f2298d30b613cc7d2ce381dc5eff92fc7f"
+}

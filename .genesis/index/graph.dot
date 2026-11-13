@@ -7,6 +7,7 @@ digraph genesis {
   "file:deploy/vm/reindex.py" [label="deploy/vm/reindex.py",class="file"];
   "file:deploy/vm/release.py" [label="deploy/vm/release.py",class="file"];
   "file:deploy/vm/seed_kb.py" [label="deploy/vm/seed_kb.py",class="file"];
+  "file:deploy/vm/seed_nimbus.py" [label="deploy/vm/seed_nimbus.py",class="file"];
   "file:deploy/vm/serve.py" [label="deploy/vm/serve.py",class="file"];
   "file:deploy/vm/spend.py" [label="deploy/vm/spend.py",class="file"];
   "file:evals/datasets/__init__.py" [label="evals/datasets/__init__.py",class="file"];
@@ -135,6 +136,7 @@ digraph genesis {
   "file:src/tools/audit.py" [label="src/tools/audit.py",class="file"];
   "file:src/tools/execution/__init__.py" [label="src/tools/execution/__init__.py",class="file"];
   "file:src/tools/execution/calls.py" [label="src/tools/execution/calls.py",class="file"];
+  "file:src/tools/nimbus.py" [label="src/tools/nimbus.py",class="file"];
   "file:src/tools/registry/__init__.py" [label="src/tools/registry/__init__.py",class="file"];
   "file:src/tools/registry/provenance.py" [label="src/tools/registry/provenance.py",class="file"];
   "file:src/tools/sagas/__init__.py" [label="src/tools/sagas/__init__.py",class="file"];
@@ -215,6 +217,7 @@ digraph genesis {
   "file:tests/test_dependencies.py" [label="tests/test_dependencies.py",class="file"];
   "file:tests/test_skeleton.py" [label="tests/test_skeleton.py",class="file"];
   "file:tests/tools/execution/test_execution.py" [label="tests/tools/execution/test_execution.py",class="file"];
+  "file:tests/tools/nimbus/test_nimbus.py" [label="tests/tools/nimbus/test_nimbus.py",class="file"];
   "file:tests/tools/registry/test_registry.py" [label="tests/tools/registry/test_registry.py",class="file"];
   "file:tests/tools/sagas/test_sagas.py" [label="tests/tools/sagas/test_sagas.py",class="file"];
   "file:tests/tools/validation/conftest.py" [label="tests/tools/validation/conftest.py",class="file"];

@@ -10,11 +10,11 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
 
 from data.migrate import migrate, psql
 from data.storage import LocalStore, latest_snapshot
-from knowledge.index.store import Index, collection, collections_for, doc_filter
+from knowledge.index.store import PAYLOAD_INDEXES, Index, collection, collections_for, doc_filter
 from knowledge.ingest import pipeline
 from knowledge.ingest.pipeline import Document, Ingestion
 
@@ -166,3 +166,18 @@ def test_hidden_documents_do_not_use_up_result_slots(ingestion):
     query = embed(["Quarterly audit findings summary."])[0]  # the restricted document is the best match
     hits = ingestion.index.search("T2_SSO", "t_us", query, limit=1)
     assert [h.payload["doc_id"] for h in hits] == ["open-1"]
+
+
+def test_ensure_indexes_every_filtered_field_on_new_and_existing_collections(stack):
+    """B18: Qdrant Cloud refuses a filtered search on an unindexed field (the local Qdrant does not, so the
+    index list is checked directly). A collection from before the fix (doc_id, source_system) is repaired."""
+    client, namespace = stack
+    index = Index(client, DIMENSIONS, namespace)
+    old = collection("t_old", namespace)
+    client.create_collection(old, vectors_config={"dense": models.VectorParams(
+        size=DIMENSIONS, distance=models.Distance.COSINE)})
+    for field in ("doc_id", "source_system"):
+        client.create_payload_index(old, field, models.PayloadSchemaType.KEYWORD, wait=True)
+    for scope in ("t_old", "t_new"):
+        schema = client.get_collection(index.ensure(scope)).payload_schema
+        assert {field: info.data_type for field, info in schema.items()} == PAYLOAD_INDEXES

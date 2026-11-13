@@ -89,7 +89,8 @@ class Identity:
                     raise HTTPException(403, "this conversation belongs to someone else")
         except TokenError as error:
             raise HTTPException(401, str(error)) from None
-        return Principal(tenant_id=claims["tid"], principal_id=claims["sub"], assurance_tier=claims["tier"])
+        return Principal(tenant_id=claims["tid"], principal_id=claims["sub"], assurance_tier=claims["tier"],
+                         session_id=claims["sid"])
 
     def _claims(self, token):
         return decode(token, self.key.public_key(), ISSUER, API_AUDIENCE)

@@ -1,0 +1,13 @@
+{
+  "task": "SWEEP-02",
+  "gate": "independent-review",
+  "kind": "review",
+  "attempt": "235b55cf-725f-4ca7-abaf-3b045e81761b",
+  "human": "Intelligent_developer_123",
+  "reason": "I approve",
+  "observed_at": "2026-11-12T16:00:13.074Z",
+  "source_hash": "27cdd730559790d1f400f919f59e0ff4ca03a144187a305d3ecba72745a1c2a0",
+  "config_hash": "22b41e1ef47535696ed88fd20b9349b729b9067b0ef8e01cb2140d4e2474ab13",
+  "reviewed_proofs": "9567ed517fe495009d1be1332c0c6df4fc51d6a030d974ba22e82093635cf421",
+  "hash": "a10911d259e22f17a0e7de9e55551e1ab79624396c7a3460a2c1d1c783c0b549"
+}

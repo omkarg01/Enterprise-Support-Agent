@@ -1,0 +1,30 @@
+{
+  "task": "SWEEP-03",
+  "gate": "tests",
+  "kind": "command",
+  "attempt": "c887164e-1227-41cd-8ccc-2775ab04a8fe",
+  "command": "python -m pytest tests/deploy/vm tests/runtime tests/channels -q",
+  "started_at": "2026-11-12T16:24:04.886Z",
+  "observed_at": "2026-11-12T16:29:39.028Z",
+  "exit_code": 0,
+  "signal": null,
+  "stdout": "........................................................................ [ 67%]\r\n..................................                                       [100%]\r\n106 passed in 321.53s (0:05:21)\r\n",
+  "stderr": "",
+  "failure": null,
+  "receipt": null,
+  "revision": {
+    "commit": "d8128e2b29d836d282e5071bd0e2fcca102a8b31",
+    "dirty": true
+  },
+  "source_hash": "be6d4ed35de2d93f47dd9b6987649a1ca1f4c45d39d221c6fbc1d8a8ddde2fce",
+  "before_hash": "be6d4ed35de2d93f47dd9b6987649a1ca1f4c45d39d221c6fbc1d8a8ddde2fce",
+  "config_hash": "f0c8f30b5279141680884acc6e8fd054ad210edf99a1c5c7319df75a571261da",
+  "environment": {
+    "node": "v24.21.0",
+    "platform": "win32",
+    "arch": "x64",
+    "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+    "variables": {}
+  },
+  "hash": "175471bbde1449923b0727c44347e4977dc0b12a889ef2a668a36875f029eae0"
+}

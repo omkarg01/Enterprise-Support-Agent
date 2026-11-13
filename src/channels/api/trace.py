@@ -41,10 +41,13 @@ def _agents(decision, steps):
             by = "decision engine" if steps.get("classifier") == "jev" else "classifier"
             calls.append(_call("Triage", "SUCCESS", {"intent": _words(steps["intent"]), "by": by}))
     stages = " → ".join(_words(stage) for stage in steps.get("stages", []))
+    specialists = steps.get("specialists", [])
+    routed = ", ".join(f"the {_words(s['role']).lower()} specialist" for s in specialists) \
+        or "the Knowledge Agent"
     agents = [{"id": "coordinator", "name": "Coordinator", "role": "Screens the message and routes it",
                "status": "stopped" if decision == "block" else "success",
                "outcome": {"block": "stopped at screening", "escalate": "routed to a person"}.get(
-                   decision, "routed to the Knowledge Agent"),
+                   decision, f"routed to {routed}"),
                "calls": calls, "notes": [f"Stages: {stages}"] if stages else []}]
     if retrieval or answer:
         sources = (retrieval or {}).get("sources", [])
@@ -65,6 +68,14 @@ def _agents(decision, steps):
                        "calls": calls,
                        "notes": ["Retried once after the first draft did not pass the checks"]
                        if (answer or {}).get("retried") else []})
+    for spec in specialists:
+        found = spec.get("claims", 0)
+        agents.append({"id": spec["role"], "name": f"{_words(spec['role'])} specialist",
+                       "role": "Reads the passages for its domain and reports findings",
+                       "status": "success" if found else "failed",
+                       "outcome": f"{found} finding{'s' * (found != 1)}" if found else "no findings",
+                       "calls": [_call("Read passages", "SUCCESS" if found else "NO FINDINGS")],
+                       "notes": []})
     if "review" in steps:
         passed = steps["review"] == "deliver"
         agents.append({"id": "reviewer", "name": "Output Reviewer",
