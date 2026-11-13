@@ -4,7 +4,7 @@
 
 - workflow: new-product
 - phase: verify
-- plan approval: Intelligent_developer_123 at 2026-11-12T16:57:27.908Z
+- plan approval: Intelligent_developer_123 at 2026-11-13T17:09:39.015Z
 
 ## Tasks
 
@@ -2047,4 +2047,20 @@
 - scope: deploy/vm/, deploy/compose.yaml, tests/deploy/vm/
 - gates: tests: python -m pytest tests/deploy/vm -q, independent-review: pass
 - next: Independent review (human), then task complete
+
+### AGENT-01 — Demo Nimbus systems and read-only tools (DECISION-ea5b8887 A): tenant-RLS Postgres tables (accounts, subscriptions, invoices, service status, tickets) with seeded demo rows; a production tool catalog in src/tools of read-only tools scoped to the signed-in customer (no free arguments, FR-21); tools.execution.Executor.run writes the tool audit record (register S11)
+
+- state/risk: done / medium
+- requirements: FR-20, FR-23, FR-24, NFR-3, AC-11
+- scope: migrations/, src/tools/, deploy/vm/, tests/tools/, tests/deploy/vm/
+- gates: tests: python -m pytest tests/tools tests/deploy/vm -q, independent-review: pass
+- next: Run the task pre-flight.
+
+### AGENT-02 — Specialists use the read-only tools in the turn loop (DECISION-ea5b8887 B, C; register W41): agents.topology.coordinator reads run_tool from its LangGraph config per turn; production.services composes the Executor with the catalog, Cedar and identity; each TEAM role gets an allow list and one tool step; tool outputs are evidence; without Jev the generalist gets every read-only tool; the turn carries the real session and principal ids
+
+- state/risk: done / medium
+- requirements: FR-20, FR-23, FR-25, FR-26, FR-27, AC-7, AC-11
+- scope: src/agents/topology/, src/runtime/, tests/agents/topology/, tests/runtime/, tests/e2e/test_scenario_multiagent.py, evals/golden_questions.md, src/channels/api/envelope.py, src/channels/api/turns.py, src/channels/identity/service.py, tests/channels/, tests/contracts/snapshots/InboundTurn.json, src/tools/execution/__init__.py, src/tools/nimbus.py, tests/tools/nimbus/test_nimbus.py
+- gates: tests: python -m pytest tests/agents tests/runtime tests/e2e/test_scenario_multiagent.py tests/channels -q, independent-review: pass
+- next: Run the task pre-flight.
 

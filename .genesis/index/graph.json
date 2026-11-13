@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "project": "Enterprise-Support-Agent",
-  "revision": "97d6627a1bf382b47a23e481cde2d81075972671",
-  "sourceHash": "3a92a3a94076bedac209fb17e027161d0920900be5cff5b9e2a820ae4ac9bfdc",
+  "revision": "b0f2c690a8114286e7ab311a4c359b76fdea0079",
+  "sourceHash": "11ffd54b46700673b3c7b2347c4260c52d76c8afc11c53c59489a926883c87bb",
   "provenance": {
     "tool": "genesis-graphizer",
     "method": "static-analysis",
@@ -68,6 +68,16 @@
       "confidence": 1,
       "extractor": "filesystem",
       "contentHash": "715f45e01d7b2f5665b76fb68c226a13e9714237812607342d89cab5cb653e3e"
+    },
+    {
+      "id": "file:deploy/vm/seed_nimbus.py",
+      "type": "file",
+      "label": "deploy/vm/seed_nimbus.py",
+      "path": "deploy/vm/seed_nimbus.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "87c403da563f8b067eec17d8f43a0428e2780ea8707e54c650b9098fcb25af5d"
     },
     {
       "id": "file:deploy/vm/serve.py",
@@ -397,7 +407,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "8f07e9094157be294f0c6beeb223c23de16b34d1ecd89c4d018a829cfb3789d4"
+      "contentHash": "a8da2dd9e70f464aed922df969c20cc6f9d4fe009a3313ac20f0f301d306f35c"
     },
     {
       "id": "file:src/channels/api/__init__.py",
@@ -437,7 +447,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "500eb71510a2c14743534ef0e37fdc3eff1aab55dd02049df086595d771097ad"
+      "contentHash": "103777946bd3aeff55aa30ca0ff17fa8b5eb8533f1f59cf244faca0a13243014"
     },
     {
       "id": "file:src/channels/api/trace.py",
@@ -457,7 +467,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "705831520c9c8be7ecb6517e7b9a4bb3cb9ecdac8e15e5ce9afb2941d1863d9e"
+      "contentHash": "edd21a6c3d896bb66b207bae5f80ebd4a9ab99ca941b5420d3020ed7cda7fb63"
     },
     {
       "id": "file:src/channels/identity/__init__.py",
@@ -517,7 +527,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "5e7999e97c21cbb6f64be6c42dfd135fc5e5a5eaf426684f0ec5e72019650fa4"
+      "contentHash": "e4cc76dd33a063b44c2b81c75ae8b455c1e68575a20ed7bbdfc0ec1a0378a6ea"
     },
     {
       "id": "file:src/channels/identity/tiers.py",
@@ -1127,7 +1137,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "0e2bfe8d5cc4abe5a29f04c93f9d3b3f079d91c4b6acb078965f9f58b49b5ff9"
+      "contentHash": "3577dbee905aa709fb8973d4b1454069f1985478112f9d1ed9fceb25609fb665"
     },
     {
       "id": "file:src/runtime/__main__.py",
@@ -1147,7 +1157,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "dadb84ddaf7d1cb7249fde24a523d9cc5f4814881bb5b3326d39fd7c192637bf"
+      "contentHash": "d29a2d2bc9a3ec5eac62b465d9bab04b77420459a78e1222d70184d456adb49a"
     },
     {
       "id": "file:src/safety/authz/__init__.py",
@@ -1337,7 +1347,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "24e74a3142ab34c8860a672a5c4244ebc8b38cd5a9c9836462987e741337ee6e"
+      "contentHash": "1bf846dce66e03fc1ae3be753ed4dbaacc34798c5cd7e9b5d487d732aed1bee2"
     },
     {
       "id": "file:src/tools/execution/calls.py",
@@ -1348,6 +1358,16 @@
       "confidence": 1,
       "extractor": "filesystem",
       "contentHash": "62d563f9c3f70c98c06a61c781cb276eb928c14d8691d5a2bf404cfafde4c141"
+    },
+    {
+      "id": "file:src/tools/nimbus.py",
+      "type": "file",
+      "label": "src/tools/nimbus.py",
+      "path": "src/tools/nimbus.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "e63c7676cbd90477ff38fd1fe8e385448edb937e015b8dd791e0f10503a41396"
     },
     {
       "id": "file:src/tools/registry/__init__.py",
@@ -1487,7 +1507,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "725ff5bbc0a5d2b9e957650b22078c77cfcf2fbbd10804f8736abb2cf509dd4e"
+      "contentHash": "92113129004866272c664c49f0c31c3deab38d273b1a379dd0c1f7fbceb976b0"
     },
     {
       "id": "file:tests/channels/test_api.py",
@@ -1627,7 +1647,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "bfca5f1be541f620baf3c84195a014f58852ce9d8441a2d12e85078f6e3539a4"
+      "contentHash": "4a5b872b70243524e2550bd0a81ee3522237006c39f4e07e54dca3116b40ad8e"
     },
     {
       "id": "file:tests/e2e/test_scenario_degradation.py",
@@ -2037,7 +2057,7 @@
       "language": "python",
       "confidence": 1,
       "extractor": "filesystem",
-      "contentHash": "5fcc86e11b2035278e9cee60d37ad1025593ac7a76aa413260a027e4841a9125"
+      "contentHash": "0ff54d082d397583879a85e3a34744a9a708ceefd7698f7ea9198e5d1f7f7d94"
     },
     {
       "id": "file:tests/safety/authz/test_cedar.py",
@@ -2148,6 +2168,16 @@
       "confidence": 1,
       "extractor": "filesystem",
       "contentHash": "e1ffedf53e406cd7b164a8f1b1efe002f3e466a87ea0f488a22c913ceb7f2272"
+    },
+    {
+      "id": "file:tests/tools/nimbus/test_nimbus.py",
+      "type": "file",
+      "label": "tests/tools/nimbus/test_nimbus.py",
+      "path": "tests/tools/nimbus/test_nimbus.py",
+      "language": "python",
+      "confidence": 1,
+      "extractor": "filesystem",
+      "contentHash": "e640599ea33b9a597fca9b59ef245aa34412fc996fa431facab7ca1d71533800"
     },
     {
       "id": "file:tests/tools/registry/test_registry.py",

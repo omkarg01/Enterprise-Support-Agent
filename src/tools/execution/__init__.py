@@ -20,6 +20,7 @@ its pool size. Executor.run(call):
    retried. 401 (AUTHENTICATION_EXPIRED), 403 (FORBIDDEN) and other 4xx (REJECTED) never retry.
 5. output: screened as tool output before any model sees it (block: withheld; review: free text stripped),
    spotlighted, and stored by reference when the screened text is over 4 KB.
+6. audit (when the executor has one): one tools.audit record per call, ok or failed with its code.
 
 Tool failures are ToolFailure(code); through Temporal they become non-retryable ApplicationErrors of that
 type.
@@ -150,15 +151,44 @@ def as_text(data):
 class Executor:
     def __init__(self, registry, systems, screener, *, identity=None, authorizer=None, blobs=None,
                  transport=None, sleep=time.sleep, clock=time.monotonic, rng=random, budget=None,
-                 roles_of=lambda tenant_id, principal_id: ()):
+                 roles_of=lambda tenant_id, principal_id: (), audit=None):
         """systems: {name: System}; identity: channels.identity Identity (sessions and OBO); authorizer: Cedar
         Authorizer; blobs: object store for large outputs; transport: httpx transport (tests);
         roles_of(tenant, principal): the principal's roles from a trusted directory. Customers carry no roles
-        today (their tokens have none), so the default is none; never take roles from the call."""
+        today (their tokens have none), so the default is none; never take roles from the call.
+        audit: tools.audit.AuditLog for direct calls (the specialists', register S11): every call is recorded,
+        whatever its outcome, and a call whose record cannot be written returns nothing (AUDIT_UNAVAILABLE).
+        Leave it None under tools.sagas, whose activities audit each step themselves."""
         self.registry, self.systems, self.screener, self.roles_of = registry, systems, screener, roles_of
         self.identity, self.authorizer, self.blobs, self.transport = identity, authorizer, blobs, transport
-        self.sleep, self.rng, self.budget = sleep, rng, budget or RetryBudget()
+        self.sleep, self.rng, self.budget, self.audit = sleep, rng, budget or RetryBudget(), audit
         self.breakers = {name: Breaker(clock) for name in systems}
+
+    def run(self, call):
+        if self.audit is None:
+            return self._run(call)
+        try:
+            result = self._run(call)
+        except Exception as error:  # noqa: BLE001 - audited, then raised as it was
+            self._audit(call, getattr(error, "code", None) or type(error).__name__)
+            raise
+        self._audit(call, None)
+        return result
+
+    def _audit(self, call, error_code):
+        tool = self.registry.tools.get(call.tool_id)
+        system = self.systems.get(call.tool_id.split(".", 1)[0])
+        try:
+            # ponytail: the case stands in for the conversation (one per case until case linking, L36)
+            self.audit.record(tenant_id=call.tenant_id, conversation_id=call.case_id,
+                              user_id=call.principal_id, tool_id=call.tool_id, action="forward",
+                              outcome="failed" if error_code else "ok",
+                              case_id=call.case_id, call_id=call.tool_call_id,
+                              credential_basis=system and system.credential,
+                              risk_class=tool and tool.risk.value, error_code=error_code,
+                              personal=call.arguments or None)
+        except Exception as error:  # noqa: BLE001 - no record, no output
+            raise ToolFailure("AUDIT_UNAVAILABLE", type(error).__name__) from error
 
     def _principal(self, call):
         """The call's principal, verified against the live session it names (never taken on trust)."""
@@ -189,7 +219,7 @@ class Executor:
             raise ToolFailure("FORBIDDEN", f"agent-side check said {verdict}")
         return system.service_secret
 
-    def run(self, call):
+    def _run(self, call):
         tool = self.registry.tools[call.tool_id]
         system = self.systems[call.tool_id.split(".", 1)[0]]
         breaker = self.breakers[system.name]

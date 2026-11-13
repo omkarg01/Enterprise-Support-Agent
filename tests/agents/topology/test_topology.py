@@ -387,6 +387,16 @@ def test_tools_get_the_turns_context_and_a_call_id_that_is_stable_per_step():
     assert len({r.tool_call_id for r in tools.requests}) == len(tools.requests)
 
 
+def test_a_turn_brings_its_own_run_tool_in_the_config_and_every_specialist_uses_it():
+    """AGENT-02 (DECISION-ea5b8887 C): the graph is built once; each turn's tools reach it per call."""
+    built_with, this_turn = Tools(), Tools(output="for this turn")
+    graph = coordinator(DecisionEngine(Jev(needs={"billing": 0.9})), specialists(), built_with)
+    state = graph.invoke({**TURN, "message": AUDIT}, {"configurable": {"run_tool": this_turn}})
+    assert built_with.calls == [] and sorted(this_turn.calls) == [("billing", "billing.credit_memos"),
+                                                                  ("technical", "ops.uptime")]
+    assert all(r["status"] == "completed" for r in state["results"])
+
+
 def test_specialists_return_findings_to_the_coordinator_not_text_to_the_customer():
     state, _ = turn(Jev(needs={"billing": 0.9}))
     assert set(state) <= {*TURN, "turn_id", "message", "plan", "results", "outcome"}

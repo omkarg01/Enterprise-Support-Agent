@@ -149,7 +149,7 @@ def test_every_module_owning_a_schema_is_migrated():
     names = vm_migrate.module_schemas()
     assert len(names) == len(set(names)) >= 17
     assert {"channels.api.turns", "hitl.queues", "cost.budgets", "evals.datasets",
-            "tools.audit"} <= set(names)
+            "tools.audit", "tools.nimbus"} <= set(names)
 
 
 def test_schemas_that_depend_on_each_other_are_applied_in_rounds():
@@ -254,11 +254,11 @@ def test_the_vm_tools_import_nothing_the_image_lacks():
 
     allowed = {"psycopg", "qdrant_client", "httpx", "uvicorn", "fastapi"} | set(sys.stdlib_module_names)
     allowed |= {"truststore"}  # optional: imported under try / except ImportError, laptop only
-    packages = {"channels", "core", "cost", "data", "knowledge", "evals", "runtime"}
+    packages = {"channels", "core", "cost", "data", "knowledge", "evals", "runtime", "tools"}
     deps = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
     assert {"qdrant-client>=1.12,<1.13", "httpx>=0.27", "uvicorn>=0.30", "fastapi>=0.115"} <= set(deps)
     import ast
-    for name in ("reindex", "spend", "migrate", "serve", "seed_kb"):
+    for name in ("reindex", "spend", "migrate", "serve", "seed_kb", "seed_nimbus"):
         tree = ast.parse((ROOT / "deploy" / "vm" / f"{name}.py").read_text(encoding="utf-8"))
         roots = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         roots |= {n.module.split(".")[0] for n in ast.walk(tree)

@@ -57,7 +57,8 @@ def submit_turn(conn, principal, conversation_id, idempotency_key, request, disp
                 {"turn_id": turn_id, "state": "queued", "text": "Message received"})
         dispatch(InboundTurn(
             tenant_id=principal.tenant_id, principal_id=principal.principal_id,
-            assurance_tier=principal.assurance_tier, conversation_id=conversation_id, turn_id=turn_id,
+            assurance_tier=principal.assurance_tier, session_id=principal.session_id,
+            conversation_id=conversation_id, turn_id=turn_id,
             content=request.content, attachment_refs=request.attachment_refs))
     return turn_id, True
 

@@ -264,9 +264,11 @@ def valid_findings(move):
 
 
 def specialist_graph(spec, run_tool):
-    """One specialist: up to brief["steps"] ReAct steps over its own tools, then a typed result."""
-    def step(state):
+    """One specialist: up to brief["steps"] ReAct steps over its own tools, then a typed result. A turn may
+    bring its own run_tool in config["configurable"]["run_tool"] (DECISION-ea5b8887 C); else this one."""
+    def step(state, config):
         brief, history = state["brief"], list(state.get("history", []))
+        run = (config.get("configurable") or {}).get("run_tool") or run_tool
         if type(brief.get("steps")) is not int or not 1 <= brief["steps"] <= STEPS_PER_SPECIALIST:
             return {"result": _result(spec.role.value, "blocked", "invalid step budget", history)}
         move = spec.act(brief, history)
@@ -285,7 +287,7 @@ def specialist_graph(spec, run_tool):
                               brief["principal_id"], brief["turn_id"], spec.role.value, len(history), action,
                               arguments)
         try:
-            output = run_tool(request)
+            output = run(request)
             observation = {"ok": output} if isinstance(output, str) else {"error": "UNSCREENED_OUTPUT"}
         except Exception as error:  # noqa: BLE001 - the next step may retry once (Reflexion), within budget
             observation = {"error": failure_code(error)}
@@ -303,7 +305,8 @@ def specialist_graph(spec, run_tool):
 
 
 def coordinator(engine, specialists, run_tool, checkpointer=None):
-    """The coordinator graph; start a turn with start_turn()."""
+    """The coordinator graph; start a turn with start_turn(). run_tool is the default; a turn passes its own
+    as config["configurable"]["run_tool"], which reaches every specialist."""
     subgraphs = {role: specialist_graph(spec, run_tool) for role, spec in specialists.items()}
 
     def plan(state):

@@ -1,0 +1,30 @@
+{
+  "task": "AGENT-01",
+  "gate": "tests",
+  "kind": "command",
+  "attempt": "85acaeba-c4af-4e41-bd6d-451095397d99",
+  "command": "python -m pytest tests/tools tests/deploy/vm -q",
+  "started_at": "2026-11-13T16:46:22.898Z",
+  "observed_at": "2026-11-13T16:49:19.894Z",
+  "exit_code": 0,
+  "signal": null,
+  "stdout": "........................................................................ [ 26%]\r\n........................................................................ [ 53%]\r\n........................................................................ [ 80%]\r\n...................................................                      [100%]\r\n267 passed in 173.62s (0:02:53)\r\n",
+  "stderr": "",
+  "failure": null,
+  "receipt": null,
+  "revision": {
+    "commit": "b0f2c690a8114286e7ab311a4c359b76fdea0079",
+    "dirty": true
+  },
+  "source_hash": "7dc207d790b6387a7f1aa0830961df84cd7b1a4761a204b215506a2af406d9ed",
+  "before_hash": "7dc207d790b6387a7f1aa0830961df84cd7b1a4761a204b215506a2af406d9ed",
+  "config_hash": "a42e91802712e6ec24f06dabfa6bbc0eb30637582e139d088b8e37806fcd9275",
+  "environment": {
+    "node": "v24.21.0",
+    "platform": "win32",
+    "arch": "x64",
+    "verifier": "5020061451b269b889dfd3fa48831a4d90fee8c850b493b153ba89af49d1bd9e",
+    "variables": {}
+  },
+  "hash": "afe91e4d71261e8c58b97c14dda85621304d117fa8e682c9f0964188954e9449"
+}
