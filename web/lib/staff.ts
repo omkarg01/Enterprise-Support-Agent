@@ -46,6 +46,21 @@ export type Handoff = {
   conversation_id: string; status: string; assignee_id: string | null; created_at: string; sla_due_at: string;
 };
 
+// The portal's thumbs (improvement.feedback.ratings): the reply and its question as History keeps them, the
+// comment masked, its failure category and severity (0..1) from Jev.
+export type Rating = {
+  id: number; tenant_id: string; conversation_id: string; turn_id: string; signal: "up" | "down";
+  comment: string | null; category: string | null; severity: number | null; at: string;
+  question: string | null; answer: string | null; citations: { doc_id: string; title?: string }[]; models: string[];
+};
+export type Rate = { up: number; down: number; up_rate: number | null };
+export type FeedbackReport = {
+  days: number;
+  summary: { total: Rate; by_day: Record<string, Rate>; by_model: Record<string, Rate>; down_by_category: Record<string, number> };
+  ratings: Rating[];
+};
+export const CRITICAL = 0.8; // improvement.feedback.PAGE_AT
+
 export class StaffError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
@@ -75,7 +90,13 @@ export const staffApi = {
     call<Service>("POST", `/services/${enc(tenant)}/${enc(serviceId)}/actions`, { action, replicas }),
   activity: () => call<{ activity: Activity[] }>("GET", "/activity").then((d) => d.activity),
   handoffs: () => call<{ handoffs: Handoff[] }>("GET", "/handoffs").then((d) => d.handoffs),
+  feedback: (days = 30) => call<FeedbackReport>("GET", `/feedback?days=${days}`),
 };
+
+// Thumbs down first by severity (critical on top, unknown last), then newest.
+export const worstFirst = (ratings: Rating[]) => ratings.filter((r) => r.signal === "down")
+  .sort((a, b) => (b.severity ?? -1) - (a.severity ?? -1) || b.at.localeCompare(a.at));
+export const percent = (rate: number | null) => rate === null ? "—" : `${Math.round(rate * 100)}%`;
 
 export const ticketHref = (id: string) => `/staffs/tickets/${enc(id)}`;
 export const customerHref = (tenant: string, email: string) => `/staffs/customers/${enc(tenant)}/${enc(email)}`;

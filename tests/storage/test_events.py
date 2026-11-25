@@ -89,7 +89,7 @@ def test_event_log_has_forced_row_level_security_and_applies_once(log):
     assert psql(DB, "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
                     "WHERE relname = 'outbound_event_log'") == [["t", "t"]]
     apply_schema(DB)
-    assert psql(DB, "SELECT count(*) FROM schema_migrations WHERE name LIKE 'events_%'") == [["2"]]
+    assert psql(DB, "SELECT count(*) FROM schema_migrations WHERE name LIKE 'events_%'") == [["3"]]
 
 
 def test_event_log_needs_an_autocommit_connection():

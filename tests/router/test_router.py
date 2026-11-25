@@ -49,7 +49,7 @@ class Fake:
         self.calls += 1
         if self.failures:
             raise self.failures.pop(0)
-        return Completion(f"answer from {self.name}", self.name, *self.tokens)
+        return Completion(f"answer from {self.name}", self.name, *self.tokens, f"{self.name}-model")
 
 
 def transient(name):
@@ -80,6 +80,7 @@ def test_turns_route_by_difficulty(score, provider):
     router, _ = setup()
     reply = router.answer(MESSAGES, engine(score), STATE, verify=lambda text: True)
     assert (reply.outcome, reply.provider, reply.cascaded) == ("answered", provider, False)
+    assert reply.model == f"{provider}-model"  # shown in the customer's trace
 
 
 def test_a_failed_check_cascades_once_one_tier_up():
@@ -185,7 +186,7 @@ def test_openai_compatible_adapter():
 
     groq = openai_compatible("groq", "https://api.groq.test/openai/v1", "llama", "k",
                              transport=httpx.MockTransport(handler))
-    assert groq.complete(MESSAGES, 64) == Completion("hi", "groq", 7, 2)
+    assert groq.complete(MESSAGES, 64) == Completion("hi", "groq", 7, 2, "llama")
     assert seen[0] == {"model": "llama", "messages": MESSAGES, "max_tokens": 64}
     for status, is_transient in ((429, True), (503, True), (400, False)):
         failing = openai_compatible("g", "https://x.test/v1", "m",
@@ -212,7 +213,7 @@ def test_claude_adapter_request_and_reply():
         seen.append((request.headers.get("anthropic-beta"), json.loads(request.content)))
         return httpx2.Response(200, json=MESSAGE)
 
-    expected = Completion("Renew the certificate.", "claude", 10, 5)
+    expected = Completion("Renew the certificate.", "claude", 10, 5, "claude-opus-5-5")
     assert claude_with(handler).complete(MESSAGES, 512) == expected
     beta, body = seen[0]
     assert "server-side-fallback-2026-07-01" in beta

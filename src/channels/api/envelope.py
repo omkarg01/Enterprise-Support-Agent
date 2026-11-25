@@ -24,6 +24,11 @@ class Principal(BaseModel):
     session_id: str | None = None   # the live session the token names (its sid): tools act through it
 
 
+class FeedbackRequest(BaseModel):
+    signal: Literal["up", "down"]
+    comment: str | None = Field(default=None, max_length=2000)
+
+
 class TurnRequest(BaseModel):
     content: str = Field(min_length=1, max_length=16384)
     attachment_refs: list[str] = Field(default_factory=list)

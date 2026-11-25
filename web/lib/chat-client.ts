@@ -1,10 +1,10 @@
 // API client for the portal: sign-in, idempotent turn submission, the resumable event stream, and the
-// customer's why view and execution trace. The stream is read with fetch (not EventSource) because it must
+// customer's execution trace. The stream is read with fetch (not EventSource) because it must
 // carry the Bearer token.
 import type { Services } from "./services.ts";
 import { createParser } from "./sse.ts";
 import type { Ticket, TicketDetail } from "./tickets.ts";
-import type { Trace, Why } from "./trace.ts";
+import type { Trace } from "./trace.ts";
 
 export class HttpError extends Error {
   status: number;
@@ -18,6 +18,7 @@ export type StreamEvent = { id: string | null; event: string; data: Record<strin
 export type Tier = "T0_ANON" | "T1_VERIFIED" | "T2_SSO";
 export type Claims = { sub: string; tid: string; tier: Tier; exp: number };
 export type Conversation = { id: string; title: string | null; updated_at: string };
+export type Vote = "up" | "down";
 
 type Options = {
   baseUrl?: string;
@@ -145,8 +146,16 @@ export class ChatClient {
     return this.#request("GET", `/v1/tickets/${encodeURIComponent(ticketId)}`);
   }
 
-  why(conversationId: string, turnId: string): Promise<Why[]> {
-    return this.#request("GET", `${conversation(conversationId)}/decisions?turn_id=${encodeURIComponent(turnId)}`);
+  // A reply's thumb: final (409 on a second vote). comment "dropped": it still held personal details after
+  // masking, so only the vote was kept.
+  rate(conversationId: string, turnId: string, signal: Vote, comment = ""):
+    Promise<{ signal: Vote; comment: "kept" | "dropped" | "none" }> {
+    return this.#request("POST", `${conversation(conversationId)}/turns/${encodeURIComponent(turnId)}/feedback`,
+      { signal, comment: comment.trim() || null });
+  }
+
+  async votes(conversationId: string): Promise<Record<string, Vote>> {
+    return (await this.#request("GET", `${conversation(conversationId)}/feedback`)).votes ?? {};
   }
 
   trace(conversationId: string, turnId: string): Promise<Trace> {

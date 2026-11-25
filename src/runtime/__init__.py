@@ -41,6 +41,7 @@ import psycopg
 from agents.merge import COMPLETED, Claim, Outcome, claims_from, human, merge
 from agents.topology import (
     MAX_FINDINGS,
+    NO_CONFIDENT_FIT,
     STEPS_PER_SPECIALIST,
     Role,
     Specialist,
@@ -61,6 +62,7 @@ from runtime import tickets
 from safety.governance.disclosure import disclose
 from safety.output.checks import finalise
 from safety.screening.pipeline import SPOTLIGHT_RULE
+from schemas.thread_state import episode
 from tools import desk
 from tools import services as nimbus_services
 from tools.execution import ToolFailure
@@ -77,8 +79,7 @@ BLOCKED = "Your message was stopped by our safety checks. A person can help if y
 HANDOFF = "A specialist will take it from here. You can keep writing here in the meantime."
 FAILED = ("Something went wrong on our side while answering. A person will follow up, or try again in a "
           "moment.")
-PROCEDURE = ("No change has been made to your account: describe what the customer can do themselves, and say "
-             "a person will carry out anything that needs an account change.")
+PROCEDURE = "No change has been made to your account: describe what the customer can do themselves."
 NO_EVIDENCE = "Our documentation does not cover this, so a specialist will look at it with you."
 EVIDENCE = 5                       # passages the specialists read
 MAX_CLAIMS = 8
@@ -90,35 +91,55 @@ TEAM = {  # what Jev reads to pick the lead (no digits: the Jev rule)
     Role.TECHNICAL: ("Outages, errors and failing services: networking and VPN, databases, containers, APIs, "
                      "webhooks, infrastructure as code and point of sale terminals"),
     Role.ACCOUNT_OPS: ("Sign-in, passwords, multi-factor authentication, single sign-on, identity "
-                       "verification, users and roles, subscriptions and data privacy"),
+                       "verification, users and roles, subscriptions, data privacy, and the customer's own "
+                       "services, servers and container apps"),
+}
+STANDING = {  # who the models answer (C1): a passage about verification tiers needs the customer's own tier
+    Tier.T0_ANON: "The customer is not signed in (T0, unverified): none of their account records are read.",
+    Tier.T1_VERIFIED: ("The customer is signed in and verified (T1, a one-time code to their email); any "
+                       "customer record shown here was read through their own session and may be shared "
+                       "with them."),
+    Tier.T2_SSO: ("The customer is signed in and verified (T2, single sign-on with MFA); any customer record "
+                  "shown here was read through their own session and may be shared with them."),
 }
 TOOLS = {  # each specialist's read-only tools (tools.nimbus, W41); without Jev the generalist has all
-    Role.GENERALIST: ("nimbus_status.service_status",),
+    Role.GENERALIST: ("nimbus_status.service_status", "nimbus_support.my_services"),
     Role.BILLING: ("nimbus_account.my_invoices", "nimbus_support.my_subscriptions"),
     Role.TECHNICAL: ("nimbus_status.service_status", "nimbus_support.my_tickets",
                      "nimbus_support.my_services"),
-    Role.ACCOUNT_OPS: ("nimbus_account.my_account", "nimbus_support.my_subscriptions"),
+    Role.ACCOUNT_OPS: ("nimbus_account.my_account", "nimbus_support.my_subscriptions",
+                       "nimbus_support.my_services"),
 }
 # B26: the team that owns a restricted article (its acl_groups) and its hitl.queues queue
 TEAMS = {"billing-team": ("billing", "queue_billing"), "security-team": ("security", "queue_account")}
 DEFAULT_TEAM = ("support", "queue_senior")
 FINDINGS = """You are the {role} specialist of the support team ({about}).
 From the knowledge passages and customer records above, list the facts and steps that answer the customer's
-message within your domain. Passages labelled internal are staff runbooks: keep only what the customer can do
+message within your domain; the conversation so far is context, its earlier questions were answered
+already. Passages labelled internal are staff runbooks: keep only what the customer can do
 or should know, never internal tools, teams, document names or steps only staff can perform. Reply with JSON
 only, at most eight items:
 [{{"topic": "short_snake_case name unique to this item", "text": "one fact or step, with its exact commands",
 "evidence": ["<passage or record id>"]}}]
 Add "value" (a number) and "unit" only when the fact is a quantity. Reply [] when nothing in the passages
 or records answers it."""
-TOOL_STEP = """Before answering you may read one of the customer's own records, if it would help:
+TOOL_STEP = """The passages do not hold the customer's own data. When the customer asks about their own
+account (their services, tickets, subscriptions, invoices or account details), read the matching record below
+before answering; otherwise read one only if it would help:
 {tools}
 To read one, reply with JSON only: {{"action": "<record id>"}}. Otherwise reply with the findings as asked."""
-DRAFT = ("Answer the customer from the specialist findings only. Do not tell them to contact another team, "
+DRAFT = ("Answer only the latest question, from the specialist findings only. The conversation is context: "
+         "its earlier questions were answered already, so do not answer, repeat or summarise them. Do not "
+         "tell them to contact another team, "
          "department, person or specialist, and do not end with offers of further help: if a person is "
-         "needed, the conversation is handed over without being asked.")
+         "needed, the conversation is handed over without being asked. When they ask how something works, "
+         "state the rules and what happens as facts (for example, refunds go back to the original payment "
+         "method within the stated days), not as something they must ask a person or team to do.")
 # internal trace only (the customer view shows none of these): what agents.merge's redirect check saw
 REDIRECT_TRACE = ("redirect", "redirect_confidence", "redrafted", "rejected_draft")
+# M3: what disagreed when the merge hands off (numbers per topic and role, or the topic and each role's masked
+# claim with Jev's support level), and the topics where the lead's reading of a shared record stood (M1)
+CONFLICT_TRACE = ("values", "topic", "claims", "lead_kept")
 # B25: one redraft, then a person
 REDRAFT = ("Your previous draft pointed the customer to another team or person. Rewrite it with only the "
            "facts and steps from the findings that the customer can use themselves.")
@@ -173,6 +194,12 @@ def passages(sections):
         or "(no knowledge passage matched)"
 
 
+def dialogue(messages):
+    """The whole conversation, the customer's messages and the replies, as the models read it."""
+    # ponytail: uncapped; fold older turns into a summary (memory.conversation.dialogue) if long chats crowd
+    return "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in messages)
+
+
 class NoJev:
     """Jev is not configured: every decision fails safe (triage falls back to the LLM classifier)."""
 
@@ -213,7 +240,10 @@ class TurnLoop:
                               for role, about in TEAM.items()], self.catalog)
         # runs inside a statechart stage, saved with the case; each turn passes its run_tool in the config
         # (consult)
-        self.coordinator = coordinator(self.decide, self.team, run_tool=None)
+        # the customer's own records Jev may name (A4): "my_services" -> its description
+        own = {tool_id.split(".", 1)[1]: tool.description for tool_id, tool in self.catalog.tools.items()
+               if ".my_" in tool_id}
+        self.coordinator = coordinator(self.decide, self.team, run_tool=None, records=own)
         everything = self.allowed(self.catalog.tools)
         self.generalist = specialist_graph(Specialist(Role.GENERALIST, "every topic", everything,
                                                       self.specialist(Role.GENERALIST, "every topic")), None)
@@ -229,6 +259,17 @@ class TurnLoop:
         with self.s.connect() as conn:
             turn_events.publish(EventLog(conn), turn.tenant_id, turn.conversation_id, event_type,
                                 {"turn_id": turn.turn_id, **data})
+
+    def progress(self, key, text):
+        """A status event as a stage starts (UA-D8: the reply is buffered, the steps are shown meanwhile); each
+        text once per turn, so a retried turn repeats none."""
+        turn = self.turns.get(key)
+        if turn is None or text in turn.setdefault("shown", set()):
+            return
+        turn["shown"].add(text)
+        with self.s.connect() as conn:
+            turn_events.publish(EventLog(conn), key[0], key[1], "status",
+                                {"turn_id": turn["turn_id"], "state": "progress", "text": text})
 
     def published(self, turn):
         """(type, data) of the events this turn has published so far."""
@@ -252,25 +293,37 @@ class TurnLoop:
         return finalise(draft, lambda instruction: draft, system_prompt=SYSTEM)
 
     def customer_query(self, messages):
-        texts = [m.get("content", "") for m in messages if m.get("role") == "user"]
+        """The question being answered: the customer's messages since the last reply that answered one."""
+        texts = [m.get("content", "") for m in episode(messages) if m.get("role") == "user"]
         return " ".join(texts[-4:]) or (messages[-1]["content"] if messages else "")
 
-    def retrieve(self, state, query):
-        """This turn's passages: customer_visible ones plus the internal runbooks, which are never cited."""
+    def search(self, state, query, plan=None):
+        """This turn's passages: customer_visible ones plus the internal runbooks, which are never cited.
+        Not searched when Jev says the customer's own records answer it and the lead may read one (B1)."""
         key, failed = (state["tenant_id"], state["case_id"]), False
+        retrieval = self.steps[key]["retrieval"]
+        lead = (plan or {}).get("lead")
+        if (plan or {}).get("records_only") and lead and self.offered(key, self.team[Role(lead)].tools):
+            retrieval["skipped"] = True
+            return
         tier = (state.get("event") or {}).get("tier", "T0_ANON")
+        self.progress(key, "Searching our help articles")
         try:
-            result = self.s.retriever.retrieve(tier, state["tenant_id"], state["messages"][:-1], query,
-                                               audiences=CUSTOMER, sources=UNCITED)
-            sections, query = result.sections[:EVIDENCE], result.query.text
+            result = self.s.retriever.retrieve(tier, state["tenant_id"], state["messages"][:-1], query.text,
+                                               audiences=CUSTOMER, sources=UNCITED, query=query)
+            sections = result.sections[:EVIDENCE]
         except Exception:  # noqa: BLE001 - the embedder or index is down: no passages, so no claims
             log.warning("retrieval failed; the specialists read no knowledge passages", exc_info=True)
             sections, failed = [], True
         self.passages[key] = sections
-        self.steps.setdefault(key, {})["retrieval"] = {
-            "query": query, "failed": failed, "collections": sorted({s.collection for s in sections}),
-            "sources": [], "internal": sum(s.audience not in CUSTOMER for s in sections)}
-        return sections
+        retrieval.update(failed=failed, collections=sorted({s.collection for s in sections}),
+                         internal=sum(s.audience not in CUSTOMER for s in sections))
+
+    def standing(self, key):
+        """C1: the customer's verified tier, as the specialists and the writer are told it."""
+        turn = self.turns.get(key) or {}
+        tier = Tier[turn.get("tier") or "T0_ANON"] if turn.get("session_id") else Tier.T0_ANON
+        return STANDING[tier]
 
     def allowed(self, tool_ids):
         return frozenset(t for t in tool_ids if t in self.catalog.tools)
@@ -291,6 +344,7 @@ class TurnLoop:
         run = executor_tool(self.s.executor)
 
         def masked_run(request):
+            self.progress(key, "Reading your account records")
             text = self.s.tokens.mask(run(request))[0]
             self.records.setdefault(key, {})[request.tool_id] = text
             self.steps.setdefault(key, {}).setdefault("tools", []).append(
@@ -309,13 +363,19 @@ class TurnLoop:
             records = "".join(f"\n\n{self.records[key][t]}" for t in read)
             tools = self.catalog.tools if about else self.team[role].tools  # about: the generalist alone
             offered = [] if history else self.offered(key, tools)
+            if not history:  # the trace shows what each specialist could read (a guest is offered nothing)
+                self.steps.setdefault(key, {}).setdefault("offered", {})[role.value] = offered
+            self.progress(key, f"Asking the {role.value.replace('_', ' ')} specialist")
             upstream = brief.get("upstream")
             lead = delimit(upstream["findings"], f"{upstream['role']} findings") + "\n" if upstream else ""
+            earlier = (self.turns.get(key) or {}).get("dialogue")
+            earlier = delimit(earlier, "conversation so far") + "\n" if earlier else ""
+            earlier += self.standing(key) + "\n"
             choice = ("\n" + TOOL_STEP.format(tools="\n".join(f"- {t}: {self.catalog.tools[t].description}"
                                                                for t in offered))) if offered else ""
             task = FINDINGS.format(role=role.value.replace("_", " "), about=about or TEAM[role])
-            prompt = (f"{passages(sections)}{records}\n\n{delimit(brief['objective'], 'customer message')}\n"
-                      f"{lead}{task}{choice}")
+            prompt = (f"{passages(sections)}{records}\n\n{earlier}"
+                      f"{delimit(brief['objective'], 'customer message')}\n{lead}{task}{choice}")
             ids = {s.parent_id for s in sections} | set(read)
             reply = self.s.router.answer([{"role": "system", "content": SPOTLIGHT_RULE},
                                           {"role": "user", "content": prompt}],
@@ -328,7 +388,8 @@ class TurnLoop:
             found = (reply.outcome == "answered" and findings(reply.text, ids)) or "[]"
             claims = json.loads(found)
             self.steps.setdefault(key, {}).setdefault("specialists", []).append(
-                {"role": role.value, "outcome": reply.outcome, "claims": len(claims)})
+                {"role": role.value, "outcome": reply.outcome, "claims": len(claims),
+                 **({"model": reply.model} if reply.model else {})})
             return {"thought": f"read the passages as the {role.value} specialist", "findings": found,
                     "evidence": sorted({e for claim in claims for e in claim["evidence"]})}
         return act
@@ -339,16 +400,18 @@ class TurnLoop:
         key, messages = (state["tenant_id"], state["case_id"]), state["messages"]
 
         def write(claims):
+            self.progress(key, "Writing your answer")
             facts = "\n".join(f"- {claim.text}" for claim in claims)
-            conversation = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}"
-                                     for m in messages[-8:])
-            content = (f"{delimit(facts, 'specialist findings')}\n\n{delimit(conversation, 'conversation')}\n"
-                       f"{instruction}{DRAFT}")
+            conversation = delimit(dialogue(messages), "conversation")
+            latest = delimit(self.customer_query(messages), "latest question")
+            facts = delimit(facts, "specialist findings")
+            content = f"{facts}\n\n{conversation}\n\n{latest}\n{self.standing(key)}\n{instruction}{DRAFT}"
             reply = self.s.router.answer(
                 [{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}],
                 self.decide, {"message": Masked(self.customer_query(messages))},
                 verify=lambda text: self.check(text).verdict == "deliver")
-            self.steps.setdefault(key, {})["answer"] = {"outcome": reply.outcome, "retried": reply.cascaded}
+            self.steps.setdefault(key, {})["answer"] = {"outcome": reply.outcome, "retried": reply.cascaded,
+                                                        **({"model": reply.model} if reply.model else {})}
             if reply.outcome != "answered":
                 raise NoDraft(f"NO_DRAFT_{reply.outcome.upper()}")
             return reply.text
@@ -376,6 +439,7 @@ class TurnLoop:
     def triage(self, hook):
         """Triage, except that more detail cannot open a staff-only article: no clarifying question then."""
         def run(state):
+            self.progress((state["tenant_id"], state["case_id"]), "Working out what you need")
             result = hook(state)
             if (state["tenant_id"], state["case_id"]) in self.restricted:
                 result = {**result, "missing_params": False}
@@ -386,39 +450,57 @@ class TurnLoop:
         """Retrieval, the specialists and the merge: (reply text, "answered"), or (None, why a person takes
         it: NOTHING_TO_SAY when no passage answers it, RESTRICTED_ANSWER when the answer is staff-only, or an
         agents.merge / delegation code)."""
-        key, query = (state["tenant_id"], state["case_id"]), self.customer_query(state["messages"])
+        key = (state["tenant_id"], state["case_id"])
         if key in self.restricted:
             self.steps.setdefault(key, {})["answer"] = {"outcome": "RESTRICTED_ANSWER", "retried": False}
             return None, "RESTRICTED_ANSWER"
-        sections, draft = self.retrieve(state, query), self.draft(state, instruction)
-        evidence = {s.parent_id: f"{s.title}\n{s.text}" for s in sections}
+        self.turns.setdefault(key, {})["dialogue"] = dialogue(state["messages"])  # the specialists' context
+        # the rewrite resolves the latest question from the dialogue; Jev and the specialists get it
+        query = self.s.retriever.standalone(state["messages"][:-1], self.customer_query(state["messages"]))
+        self.steps.setdefault(key, {})["retrieval"] = {"query": query.text, "failed": False,
+                                                       "collections": [], "sources": [], "internal": 0}
+        draft = self.draft(state, instruction)
         who = self.turns.get(key) or {}
         brief = {"tenant_id": key[0], "case_id": key[1], "turn_id": who.get("turn_id") or str(uuid.uuid4()),
                  # no session (a turn from before AGENT-02): offered() offers no tool, so it is never used
                  "session_id": who.get("session_id") or "none",
                  "principal_id": who.get("principal_id") or state["session_id"]}
-        config = {"configurable": {"run_tool": self.tool_runner(key)}}
+        # documentation is searched once the plan is made, unless the customer's own records answer it (B1)
+        config = {"configurable": {"run_tool": self.tool_runner(key),
+                                   "planned": lambda plan: self.search(state, query, plan)}}
         try:
             if isinstance(getattr(self.s.engine, "jev", None), NoJev):
-                outcome = self.alone(brief, query, draft, config)
+                self.search(state, query)
+                outcome = self.alone(brief, query.text, draft, config)
             else:
-                turn = self.coordinator({**brief, "message": query}, config)
-                if turn["plan"]["handoff"]:
+                turn = self.coordinator({**brief, "message": query.text}, config)
+                self.steps.setdefault(key, {})["plan"] = plan = {**turn["plan"]}
+                lead, results = plan["lead"], turn["results"]
+                if plan["handoff"] == NO_CONFIDENT_FIT:  # no confident lead: the generalist tries first
+                    plan["fallback"], lead = "generalist", Role.GENERALIST.value
+                    results = [self.general(brief, query.text, config)]
+                sections = self.passages.get(key, [])   # searched by now, between the plan and the dispatch
+                evidence = {s.parent_id: f"{s.title}\n{s.text}" for s in sections}
+                if lead is None:  # Jev could not decide the delegation
                     outcome = human("NO_DELEGATION")
-                elif self.unanswered(key, turn["plan"]["lead"]):
+                elif self.unanswered(key, lead):
                     outcome = human("LEAD_UNAVAILABLE")
                 else:
-                    outcome = merge(self.decide, turn["results"], {**evidence, **self.records.get(key, {})},
-                                    draft, redraft=self.draft(state, instruction + REDRAFT + "\n"))
+                    outcome = merge(self.decide, results, {**evidence, **self.records.get(key, {})},
+                                    draft, redraft=self.draft(state, instruction + REDRAFT + "\n"),
+                                    dated={s.parent_id: s.updated_at for s in sections},
+                                    lead=lead, records=self.records.get(key, {}))
         except NoDraft as error:
             outcome = human(str(error))
         used = {e for claim in outcome.accepted for e in claim.evidence}
-        self.evidence[key] = [s for s in sections if s.parent_id in used and s.audience in CUSTOMER]
+        self.evidence[key] = [s for s in self.passages.get(key, [])
+                              if s.parent_id in used and s.audience in CUSTOMER]
         steps = self.steps.setdefault(key, {})
         steps["retrieval"]["sources"] = [{"doc_id": s.doc_id, "title": s.title} for s in self.evidence[key]]
         answer = steps.setdefault("answer", {"retried": False})
         answer["outcome"] = "answered" if outcome.kind == "reply" else outcome.reason
         answer.update({k: outcome.detail[k] for k in REDIRECT_TRACE if k in outcome.detail})
+        answer.update({k: outcome.detail[k] for k in CONFLICT_TRACE if k in outcome.detail})
         return (outcome.text, "answered") if outcome.kind == "reply" else (None, outcome.reason)
 
     def unanswered(self, key, role):
@@ -427,15 +509,18 @@ class TurnLoop:
         return any(s["role"] == role and s["outcome"] != "answered"
                    for s in self.steps.get(key, {}).get("specialists", []))
 
+    def general(self, brief, query, config):
+        """The generalist's result: it reads for every domain, with every tool the customer's tier allows."""
+        return self.generalist({"brief": {**brief, "role": Role.GENERALIST.value, "objective": query,
+                                          "steps": STEPS_PER_SPECIALIST}, "history": []}, config)["result"]
+
     def alone(self, brief, query, draft, config):
-        """Without Jev nothing delegates or adjudicates: the generalist reads for every domain, with every
-        tool; agents.merge's code-only check still applies (topics are unique per specialist: nothing to
-        adjudicate)."""
-        done = self.generalist({"brief": {**brief, "role": Role.GENERALIST.value, "objective": query,
-                                          "steps": STEPS_PER_SPECIALIST}, "history": []}, config)
+        """Without Jev nothing delegates or adjudicates: the generalist answers alone; agents.merge's
+        code-only check still applies (topics are unique per specialist: nothing to adjudicate)."""
+        result = self.general(brief, query, config)
         if self.unanswered((brief["tenant_id"], brief["case_id"]), Role.GENERALIST.value):
             return human("LEAD_UNAVAILABLE")
-        claims = tuple(claims_from(done["result"]))
+        claims = tuple(claims_from(result))
         if not claims:
             return human("NOTHING_TO_SAY")
         text = draft(claims)
@@ -452,7 +537,7 @@ class TurnLoop:
         charges collects a ticket's details (runtime.tickets); anything else has nothing to collect, and the
         procedure answers from the documentation."""
         key = (state["tenant_id"], state["case_id"])
-        texts = [m.get("content", "") for m in state.get("messages") or [] if m.get("role") == "user"]
+        texts = [m.get("content", "") for m in episode(state.get("messages") or []) if m["role"] == "user"]
         wanted, category = tickets.wants(self.decide, "\n".join(texts[-4:]))
         if not wanted:
             return {"parameters": {}, "missing": []}
@@ -604,8 +689,7 @@ class TurnLoop:
         return {"response": text} if text else {"error": f"no answer for the procedure ({why})"}
 
     def clarifying_question(self, state, masked):
-        thread = "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}"
-                           for m in (state.get("messages") or [])[-8:]) or masked
+        thread = dialogue(state.get("messages") or []) or masked
         reply = self.s.router.answer(
             [{"role": "system", "content": SYSTEM},
              {"role": "user", "content": f"{delimit(thread, 'conversation')}\nAsk the customer one short, "
@@ -614,6 +698,14 @@ class TurnLoop:
             self.decide, {"message": Masked(masked)},
             verify=lambda text: self.check(text).verdict == "deliver")
         return reply.text if reply.outcome == "answered" else None
+
+    def remember(self, config, text, **kind):
+        """Keep a sent reply in the case thread, so the next turn reads the whole dialogue. Called after the
+        final event: a retry of an answered turn stops before it, so a reply is never kept twice."""
+        try:
+            self.graph.append(config, messages=[{"role": "assistant", "content": text, **kind}])
+        except Exception:  # noqa: BLE001 - the customer has the reply; the next turn just reads one less
+            log.exception("could not keep the reply in case %s", config["configurable"]["thread_id"])
 
     # One turn ----------------------------------------------------------------------------------------------
 
@@ -634,6 +726,8 @@ class TurnLoop:
                 if turn.action.type == "confirm_action":
                     return self.run_service_action(turn)
                 return self.raise_ticket(turn)
+            self.turns[key]["shown"] = {data.get("text") for kind, data in done if kind == "status"}
+            self.progress(key, "Checking your message")
             verdict = self.s.screener.screen("user_message", turn.content)
             steps = {"screening": verdict.band}
             if verdict.band == "block":
@@ -669,6 +763,7 @@ class TurnLoop:
                          classifier=str(triage.get("rationale") or "").split(":", 1)[0] or None)
             trace = {"triage": state.get("triage"), "path": state.get("path"), "steps": steps}
             if state.get("stage") == "RESOLVED" and state.get("final_response"):
+                self.progress(key, "Checking the answer")
                 checked = self.check(state["final_response"])
                 steps["review"] = checked.verdict
                 for section in self.evidence.get(key, []):
@@ -681,6 +776,7 @@ class TurnLoop:
                        else "We answered from our documentation.")
                 self.record(turn, "answer", why, ["Content safety"], trace)
                 self.publish(turn, "final", disclose({"role": "assistant", "text": checked.text}))
+                self.remember(config, checked.text)
                 return "answered"
             if state.get("stage") == "AWAITING_CUSTOMER":
                 collected = "COLLECTING_PARAMS" in steps["stages"] and state.get("missing")
@@ -690,6 +786,7 @@ class TurnLoop:
                     self.record(turn, "ask_customer", "We need one more detail before we can help.",
                                 ["Content safety"], trace)
                     self.publish(turn, "final", disclose({"role": "assistant", "text": question}))
+                    self.remember(config, question, kind="question")
                     return "asked"
             uncovered = steps.get("answer", {}).get("outcome") == "NOTHING_TO_SAY"
             reason = NO_EVIDENCE if uncovered else "A specialist will look at this with you."

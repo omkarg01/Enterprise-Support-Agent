@@ -1,12 +1,5 @@
-// Shapes of GET .../decisions (src/safety/governance/records.py why()) and GET .../turns/{id}/trace
-// (src/channels/api/trace.py customer_trace()). The server has already filtered both for the caller's tier.
-export type Why = {
-  decision: string;
-  reason: string;
-  checks: string[];
-  requires_human_review: boolean;
-  human_available: boolean;
-};
+// Shape of GET .../turns/{id}/trace (src/channels/api/trace.py customer_trace()). The server has already
+// filtered it for the caller's tier.
 
 export type ToolCall = { name: string; args: Record<string, string>; result: string; items: string[] };
 
@@ -26,6 +19,7 @@ export type Trace = {
   tier: string;
   summary: string;
   final: { label: string; outcome: string };
+  models?: string[]; // the language models that wrote the reply; absent from an older API
   agents: Agent[];
   shared_state: Record<string, string | number | null>;
 };

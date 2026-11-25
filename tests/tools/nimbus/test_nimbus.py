@@ -105,8 +105,14 @@ def test_service_status_is_open_to_an_anonymous_session(stack):
     assert [r["outcome"] for r in audited] == ["ok"]
 
 
+@pytest.mark.parametrize("tool_id", ["nimbus_account.my_account", "nimbus_account.my_invoices"])
+def test_an_email_verified_customer_reads_their_own_account_and_invoices(stack, tool_id):
+    result, audited = run(stack, tool_id, tier="T1_VERIFIED")       # T1 since 2026-11-22 (the user's choice)
+    assert not isinstance(result, ToolFailure) and [r["outcome"] for r in audited] == ["ok"]
+
+
 @pytest.mark.parametrize("tool_id, tier", [("nimbus_support.my_tickets", "T0_ANON"),
-                                           ("nimbus_account.my_invoices", "T1_VERIFIED")])
+                                           ("nimbus_account.my_invoices", "T0_ANON")])
 def test_below_the_audiences_tier_the_call_asks_for_step_up_and_is_audited_as_failed(stack, tool_id, tier):
     failure, audited = run(stack, tool_id, tier=tier)
     assert isinstance(failure, ToolFailure) and failure.code == "STEP_UP_REQUIRED"

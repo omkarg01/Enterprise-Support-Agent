@@ -43,8 +43,8 @@ export function reduce(state: ChatState, { event, data, at }: Pick<StreamEvent, 
         role: data.role ?? "assistant",
         text: data.text ?? data.content ?? "",
         at: data.history && data.at ? Date.parse(data.at) : at, // a reopened chat keeps its own times
-        turnId: data.history ? undefined : data.turn_id,
-        citations: state.citations,
+        turnId: data.turn_id, // a reopened reply keeps its turn (its trace) and its sources
+        citations: data.history ? data.citations ?? [] : state.citations,
         actions: data.actions ?? [],
       };
       // The server sends a turn's card before its final event (so a retried turn republishes nothing); show the

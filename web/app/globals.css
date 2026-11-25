@@ -82,6 +82,13 @@ body {
   color: var(--ink);
 }
 
+/* Scrollbars in the theme colours: a brand-tinted thumb on the page, a rail-coloured one in the rail. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--brand) 45%, var(--line)) transparent;
+}
+.rail, .rail * { scrollbar-color: var(--rail-line) transparent; }
+
 summary::-webkit-details-marker { display: none; }
 summary { list-style: none; }
 details[open] > summary .chevron { transform: rotate(180deg); }

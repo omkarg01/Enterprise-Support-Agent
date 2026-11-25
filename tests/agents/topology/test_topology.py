@@ -60,8 +60,11 @@ TOOL_REGISTRY = tool_registry()
 class Jev:
     """lead: (role, confidence); needs / after: {role: P(yes)}; answers: raw overrides (malformed output)."""
 
-    def __init__(self, lead=("technical", 0.9), needs=None, after=None, down=False, answers=None):
+    def __init__(self, lead=("technical", 0.9), needs=None, after=None, down=False, answers=None,
+                 records=0.0, record=None):
         self.lead, self.needs, self.after, self.down, self.raw = lead, needs or {}, after or {}, down, answers
+        self.records = records   # P(yes) that the customer's own records alone answer it
+        self.record = record     # the customer's own record Jev names (A4)
         self.seen = []
 
     def evaluate(self, state, questions):
@@ -74,6 +77,10 @@ class Jev:
             if kind in ("needs", "after"):
                 p = getattr(self, kind).get(role, 0.0)
                 answers[qid] = Answer(p >= 0.5, max(p, 1 - p))
+            if qid == "records_only":
+                answers[qid] = Answer(self.records >= 0.5, max(self.records, 1 - self.records))
+            if qid == "record":
+                answers[qid] = Answer(self.record or "none", 0.9)
         return {**answers, **(self.raw or {})}
 
 
@@ -275,8 +282,9 @@ def test_independent_specialists_run_in_parallel_within_their_steps():
     results = {r["role"]: r for r in state["results"]}
     assert results["technical"]["findings"] == "technical: {'ok': 'ops.uptime ok'}"
     assert roles(state) == ["billing", "technical", "account_ops"]  # role order, whoever finished first
-    assert [r["steps"] for r in state["results"]] == [2, 2, 1]       # account_ops got the one step left
-    assert ledger(state["results"], state["plan"])[1] == STEPS_PER_TURN
+    assert [r["steps"] for r in state["results"]] == [1, 1, 1]       # one read each; the report is free
+    assert all(r["status"] == "completed" for r in state["results"])  # account_ops too, on its one step
+    assert ledger(state["results"], state["plan"])[1] == 4
 
 
 def test_several_dependents_run_after_the_lead_and_each_gets_its_completed_result():
@@ -295,7 +303,7 @@ def test_several_dependents_run_after_the_lead_and_each_gets_its_completed_resul
     assert set(seen) == {("billing", "completed"), ("technical", "completed")}
     results = {r["role"]: r for r in state["results"]}
     assert "after generalist:" in results["billing"]["findings"]
-    assert results["technical"]["steps"] == 1 and results["technical"]["status"] == "blocked"  # one step left
+    assert results["technical"]["steps"] == 1 and results["technical"]["status"] == "completed"  # read+report
 
 
 @pytest.mark.parametrize("lead_act", [
@@ -310,6 +318,43 @@ def test_dependents_are_skipped_not_run_when_the_lead_did_not_complete(lead_act)
     assert results["billing"] == {"role": "billing", "status": "skipped",
                                   "findings": "the lead did not complete", "evidence": [], "steps": 0}
     assert all(role != "billing" for role, _ in tools.calls)
+
+
+def test_the_plan_with_its_records_only_answer_is_handed_over_before_anyone_is_dispatched():
+    seen, tools = [], Tools()
+    graph = coordinator(DecisionEngine(Jev(records=0.9)), specialists(), tools)
+    graph({**TURN, "message": AUDIT},
+          {"configurable": {"planned": lambda plan: seen.append((plan["lead"], plan["records_only"],
+                                                                  list(tools.calls)))}})
+    assert seen == [("technical", True, [])]                        # nobody had read anything yet
+    assert delegate(DecisionEngine(Jev(records=0.2)), specialists(), Masked(AUDIT)).records_only is False
+    assert delegate(DecisionEngine(Jev(lead=("technical", 0.3), records=0.9)), specialists(),
+                    Masked(AUDIT)).records_only is False             # a hand-off plan searches as usual
+
+
+def test_jev_reads_each_specialists_description_when_asked_if_it_is_needed():
+    jev = Jev()
+    delegate(DecisionEngine(jev), specialists(), Masked(AUDIT))
+    questions = jev.seen[0][1]
+    assert all(DESCRIPTIONS[role] in questions[f"needs_{role}"]["instructions"]
+               for role in TOOLS if role != "generalist")
+
+
+RECORDS = {"uptime": "The uptime record", "credit_memos": "The credit memos"}
+
+
+def test_a_lead_that_reads_the_record_the_inquiry_is_about_works_alone():
+    jev = Jev(lead=("technical", 0.9), needs={"billing": 0.9}, record="uptime")
+    plan = delegate(DecisionEngine(jev), specialists(), Masked(AUDIT), RECORDS)
+    assert [a.role for a in plan.assignments] == [Role.TECHNICAL] and plan.record == "uptime"
+    assert jev.seen[0][1]["record"]["criteria"] == {**RECORDS, "none": "None of the customer's own records"}
+
+
+@pytest.mark.parametrize("record", ["credit_memos", None])   # the lead cannot read it / about no record
+def test_otherwise_the_others_join_as_before(record):
+    jev = Jev(lead=("technical", 0.9), needs={"billing": 0.9}, record=record)
+    plan = delegate(DecisionEngine(jev), specialists(), Masked(AUDIT), RECORDS)
+    assert [a.role for a in plan.assignments] == [Role.TECHNICAL, Role.BILLING]
 
 
 def test_a_specialist_that_knows_the_answer_reports_in_one_step():
@@ -338,7 +383,7 @@ def test_a_failed_tool_call_gets_one_retry_within_the_budget():
         return finishing("technical", "ops.uptime")(brief, history)
     state, tools = turn(Jev(), Tools(fail_once={"ops.uptime"}), technical=retry)
     (result,) = state["results"]
-    assert result["status"] == "blocked" and result["last_observation"] == {"ok": "ops.uptime ok"}
+    assert result["status"] == "completed" and "ops.uptime ok" in result["findings"] and result["steps"] == 2
     assert tools.calls == [("technical", "ops.uptime"), ("technical", "ops.uptime")]
 
 

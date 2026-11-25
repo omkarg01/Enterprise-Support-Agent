@@ -15,21 +15,24 @@ from temporalio.client import Client
 from workflows.activities import LoopActivities, worker
 from workflows.ticket import TASK_QUEUE, TicketStart, TicketWorkflow, workflow_id
 
+STARTUP_SECONDS = 60  # connecting and building the worker once; each turn keeps `timeout`
+
 
 class TemporalDispatcher:
     def __init__(self, address, loop, task_queue=TASK_QUEUE, timeout=10):
         self.task_queue, self.timeout = task_queue, timeout
         self.events = asyncio.new_event_loop()
         threading.Thread(target=self.events.run_forever, name="temporal", daemon=True).start()
-        self._call(self._start(address, loop))
+        # building the worker validates the workflows in Temporal's sandbox: seconds, more on a busy laptop
+        self._call(self._start(address, loop), STARTUP_SECONDS)
 
     async def _start(self, address, loop):
         self.client = await Client.connect(address)
         self.worker = worker(self.client, LoopActivities(loop), self.task_queue)
         self.running = asyncio.ensure_future(self.worker.run())
 
-    def _call(self, coroutine):
-        return asyncio.run_coroutine_threadsafe(coroutine, self.events).result(self.timeout)
+    def _call(self, coroutine, timeout=None):
+        return asyncio.run_coroutine_threadsafe(coroutine, self.events).result(timeout or self.timeout)
 
     def __call__(self, turn):
         start = TicketStart(turn.tenant_id, turn.conversation_id, turn.session_id or turn.principal_id)

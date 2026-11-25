@@ -27,13 +27,17 @@ test("citations, with their excerpt, attach to the reply that follows them", () 
   expect(state.messages[0].actions?.[0].id).toBe("talk_to_human");
 });
 
-test("an expired stream clears the view before the history is replayed, and history has no trace link", () => {
+test("an expired stream clears the view before the history is replayed, which keeps its trace and sources", () => {
+  const cited = { doc_id: "kb-12", title: "Refund policy" };
   const state = run([
     { event: "final", data: { text: "stale" } },
     { event: "status", data: { code: "stream_expired" } },
-    { event: "final", data: { history: true, role: "user", content: "Hi", turn_id: "old", at: "2026-11-01T10:00:00Z" } },
+    { event: "final", data: { history: true, role: "user", content: "Hi", at: "2026-11-01T10:00:00Z" } },
+    { event: "final", data: { history: true, role: "assistant", text: "Hello", turn_id: "old", citations: [cited] } },
+    { event: "final", data: { history: true, role: "assistant", text: "Older reply" } }, // stored before 2026-11-19
   ]);
-  expect(state.messages.map((m) => [m.role, m.text, m.turnId])).toEqual([["user", "Hi", undefined]]);
+  expect(state.messages.map((m) => [m.role, m.text, m.turnId, m.citations])).toEqual([
+    ["user", "Hi", undefined, []], ["assistant", "Hello", "old", [cited]], ["assistant", "Older reply", undefined, []]]);
   expect(state.status).toBeNull();
   expect(state.messages[0].at).toBe(Date.parse("2026-11-01T10:00:00Z")); // a reopened chat keeps its times
 });

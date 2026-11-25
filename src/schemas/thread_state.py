@@ -80,6 +80,17 @@ class ThreadState(TypedDict, total=False):
 APPEND = ("path", "messages", "trajectory")  # the list fields above that grow; every other field is replaced
 
 
+def episode(messages):
+    """The messages of the question being worked on: everything after the assistant's last answer. A
+    clarifying question ({"role": "assistant", "kind": "question"}) does not end one, so the customer's reply
+    stays with what it answers. A thread with no answer recorded (one from before replies were kept) is all
+    one episode."""
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "assistant" and messages[i].get("kind") != "question":
+            return messages[i + 1:]
+    return list(messages)
+
+
 def merge(state, update):
     """`state` with a node's `update` applied: APPEND fields are extended, every other field is replaced."""
     merged = dict(state)

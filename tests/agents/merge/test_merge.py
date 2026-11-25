@@ -108,6 +108,30 @@ def test_numbers_that_disagree_go_to_a_person_with_both_values_and_jev_never_jud
         assert not any("claim_a" in str(state) for state, _ in jev.seen)  # agreeing numbers are not scored
 
 
+def test_two_readings_of_one_customer_record_keep_the_leads_and_say_which_topic_it_settled():
+    lead = claim("running_services", "Three of your services are running", "nimbus.my_services", "3",
+                 "services")
+    other = claim("running_services", "Four services are up", "nimbus.my_services", "4", "services")
+    outcome = merge(DecisionEngine(Jev()), [result("account_ops", lead), result("technical", other)],
+                    {**EVIDENCE, "nimbus.my_services": "five services"}, Drafts(), lead="account_ops",
+                    records={"nimbus.my_services": "five services"})
+    assert outcome.kind == "reply" and [c.text for c in outcome.accepted] == [lead["text"]]
+    assert outcome.detail["lead_kept"] == ["running_services"]
+
+
+def test_the_lead_keeps_nothing_when_the_claims_cite_an_article_or_the_lead_said_nothing_on_it():
+    lead = claim("eu_uptime_q2", "Uptime was 99.90 percent", "kb.sla", "99.90", "percent")
+    outcome = merge(DecisionEngine(Jev()), [result("technical", UPTIME), result("billing", lead)], EVIDENCE,
+                    Drafts(), lead="billing", records={"ops.uptime": "x"})
+    assert outcome.reason == "NUMERIC_DISCREPANCY" and "lead_kept" not in outcome.detail   # no shared record
+    other = claim("eu_uptime_q2", "Uptime was 99.90 percent", "ops.uptime", "99.90", "percent")
+    outcome = merge(DecisionEngine(Jev()), [result("technical", UPTIME), result("billing", other)], EVIDENCE,
+                    Drafts(), lead="account_ops", records={"ops.uptime": "x"})
+    assert outcome.reason == "NUMERIC_DISCREPANCY"                                    # the lead is not in it
+    assert outcome.detail["values"] == {"eu_uptime_q2": {"technical": "99.98 percent",
+                                                         "billing": "99.90 percent"}}
+
+
 @pytest.mark.parametrize("value, unit", [("26", "minutes"), ("99.98", "permille"), ("99.98", None)])
 def test_the_same_figure_in_different_units_is_a_discrepancy(value, unit):
     other = claim("eu_uptime_q2", "Uptime as billing measured it", "ops.uptime", value, unit)
@@ -138,6 +162,34 @@ def test_a_conflict_is_settled_only_by_a_clear_evidence_margin(a, b, outcome_kin
     state, questions = jev.seen[0]
     assert state["evidence_a"] == EVIDENCE["ops.uptime"]                 # each claim with its own evidence
     assert state["evidence_b"] == EVIDENCE["billing.credit_memos"]
+
+
+@pytest.mark.parametrize("old, new, record", [
+    (B, A, None),                                                         # text: no Jev scoring needed
+    (claim("eu_uptime_q2", "Archive: 99.90 percent", "billing.credit_memos", "99.90", "percent"), UPTIME, None),
+    (B, A, claim("root_cause", "Your ticket says a billing job", "tool.record")),  # undated: kept
+])
+def test_the_newest_article_wins_a_topic_before_any_conflict_check(old, new, record):
+    dated = {"ops.uptime": "2026-09-15", "billing.credit_memos": "2024-11-10"}
+    results = [result("billing", old), result("technical", new)] + ([result("account_ops", record)] if record
+                                                                     else [])
+    jev, draft = Jev(support={c["text"]: 5 for c in (old, new) + ((record,) if record else ())}), Drafts()
+    outcome = merge(DecisionEngine(jev), results, {**EVIDENCE, "tool.record": "TKT-1"}, draft, dated=dated)
+    if record is None:
+        assert outcome.kind == "reply" and [c.text for c in draft.calls[0]] == [new["text"]]
+    else:  # the record still conflicts with the newest article: Jev settles it as before
+        assert outcome.reason == "EVIDENCE_AMBIGUITY" and set(outcome.detail["claims"]) == {"technical",
+                                                                                            "account_ops"}
+
+
+def test_same_date_or_no_dates_keep_the_conflict_check():
+    outcome, _, _ = run([result("technical", A), result("billing", B)], Jev(support={A["text"]: 3,
+                                                                                    B["text"]: 3}))
+    assert outcome.reason == "EVIDENCE_AMBIGUITY"
+    same = merge(DecisionEngine(Jev(support={A["text"]: 3, B["text"]: 3})),
+                 [result("technical", A), result("billing", B)], EVIDENCE, Drafts(),
+                 dated={"ops.uptime": "2026-09-15", "billing.credit_memos": "2026-09-15"})
+    assert same.reason == "EVIDENCE_AMBIGUITY"
 
 
 def test_three_way_conflicts_need_one_clear_winner():

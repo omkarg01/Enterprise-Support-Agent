@@ -45,8 +45,14 @@ STEPS_PER_TURN = 6      # all agents, the coordinator included
 COORDINATOR_STEPS = 1   # the delegation decision
 LEAD_AT = 0.50
 CO_ACTIVATE_AT = 0.80
+RECORDS_ONLY_AT = 0.80  # Jev's yes that the customer's own records answer it: documentation is not searched
+RECORDS_ONLY = ("Can this inquiry be answered from the customer's own account records alone (their services, "
+                "tickets, subscriptions, invoices or account details), without any documentation?")
+RECORD_AT = 0.80        # Jev's confidence that the inquiry is about this one record: the lead reads it alone
+RECORD_Q = "Which of the customer's own account records is this inquiry about?"
 MAX_FINDINGS = 4000     # characters
 MAX_EVIDENCE = 20
+NO_CONFIDENT_FIT = "no specialist is a confident fit"   # Jev answered, but no lead reached LEAD_AT
 
 
 class Role(str, Enum):
@@ -102,6 +108,8 @@ class Plan:
     assignments: tuple[Assignment, ...] = ()
     lead_confidence: float = 0.0
     handoff: str | None = None   # why nothing was dispatched
+    records_only: bool = False   # the customer's own records answer it: no documentation search
+    record: str | None = None    # the customer's own record the inquiry is about (Jev, confident)
 
     @property
     def steps(self):
@@ -110,7 +118,7 @@ class Plan:
     def as_state(self):
         """Plain JSON for the checkpoint."""
         return {"lead": self.lead and self.lead.value, "lead_confidence": self.lead_confidence,
-                "handoff": self.handoff,
+                "handoff": self.handoff, "records_only": self.records_only, "record": self.record,
                 "assignments": [{"role": a.role.value, "steps": a.steps, "after_lead": a.after_lead}
                                 for a in self.assignments]}
 
@@ -142,17 +150,23 @@ def _yes(answer):
     return answer.confidence if answer.value is True else 1 - answer.confidence
 
 
-def delegate(engine, specialists, message):
-    """The delegation plan for one masked customer message."""
+def delegate(engine, specialists, message, records=None):
+    """The delegation plan for one masked customer message. records: {record name: description} of the
+    customer's own records; when Jev names the one the inquiry is about and the lead can read it, the lead
+    works alone (nobody else reads the same record)."""
     lead_q = {"type": "choice",
               "instructions": "Which specialist should take the lead on this customer inquiry?",
               "criteria": {role.value: spec.description for role, spec in specialists.items()}}
     others = [role for role in specialists if role is not Role.GENERALIST]
-    questions = {"lead": lead_q}
+    questions = {"lead": lead_q, "records_only": {"type": "noul", "instructions": RECORDS_ONLY}}
+    if records:
+        questions["record"] = {"type": "choice", "instructions": RECORD_Q,
+                               "criteria": {**records, "none": "None of the customer's own records"}}
     for role in others:
         name = role.value.replace("_", " ")
         questions[f"needs_{role.value}"] = {"type": "noul", "instructions": (
-            f"Does addressing this inquiry require factual input or action from the {name} specialist?")}
+            f"Does addressing this inquiry require factual input or action from the {name} specialist, "
+            f"who covers: {specialists[role].description}?")}
         questions[f"after_{role.value}"] = {
             "type": "noul", "instructions": f"Does the {name} part of this inquiry depend on what the lead "
                                             "specialist finds first?"}
@@ -162,17 +176,21 @@ def delegate(engine, specialists, message):
         return Plan(None, handoff="delegation could not be decided")
     lead, confidence = Role(answers["lead"].value), answers["lead"].confidence
     if confidence < LEAD_AT:
-        return Plan(None, lead_confidence=confidence, handoff="no specialist is a confident fit")
-    chosen = [(lead, False)] + [
+        return Plan(None, lead_confidence=confidence, handoff=NO_CONFIDENT_FIT)
+    named = answers.get("record") if records else None
+    record = named.value if named and named.value != "none" and named.confidence >= RECORD_AT else None
+    alone = record is not None and any(t.split(".", 1)[-1] == record for t in specialists[lead].tools)
+    chosen = [(lead, False)] + ([] if alone else [
         (role, _yes(answers[f"after_{role.value}"]) >= CO_ACTIVATE_AT) for role in others
-        if role is not lead and _yes(answers[f"needs_{role.value}"]) >= CO_ACTIVATE_AT]
+        if role is not lead and _yes(answers[f"needs_{role.value}"]) >= CO_ACTIVATE_AT])
     budget, assignments = STEPS_PER_TURN - COORDINATOR_STEPS, []
     for role, after_lead in chosen:
         steps = min(STEPS_PER_SPECIALIST, budget)
         if steps:
             assignments.append(Assignment(role, steps, after_lead))
             budget -= steps
-    return Plan(lead, tuple(assignments), confidence)
+    return Plan(lead, tuple(assignments), confidence,
+                records_only=_yes(answers["records_only"]) >= RECORDS_ONLY_AT, record=record)
 
 
 # Tools ------------------------------------------------------------------------------------------------------
@@ -233,8 +251,11 @@ def masked_text(message):
 
 
 def _result(role, status, findings, history, evidence=(), **extra):
+    """steps: the records read; a step that reads nothing (findings, a refused move) counts only when it is
+    the specialist's only step, so the report after its last read is free."""
+    steps = sum("observation" in h for h in history) or min(len(history), 1)
     return {"role": role, "status": status, "findings": findings, "evidence": list(evidence),
-            "steps": len(history), **extra}
+            "steps": steps, **extra}
 
 
 def valid_findings(move):
@@ -244,9 +265,9 @@ def valid_findings(move):
 
 
 def specialist_graph(spec, run_tool):
-    """One specialist as run(state, config) -> state with its "result": up to brief["steps"] ReAct steps over
-    its own tools, then a typed result. A turn may bring its own run_tool in
-    config["configurable"]["run_tool"] (DECISION-ea5b8887 C); else this one."""
+    """One specialist as run(state, config) -> state with its "result": up to brief["steps"] reads of its own
+    tools, then one step that must report (it is not counted), then a typed result. A turn may bring its own
+    run_tool in config["configurable"]["run_tool"] (DECISION-ea5b8887 C); else this one."""
     def step(state, config):
         brief, history = state["brief"], list(state.get("history", []))
         run = (config.get("configurable") or {}).get("run_tool") or run_tool
@@ -260,6 +281,10 @@ def specialist_graph(spec, run_tool):
                         "result": _result(spec.role.value, "blocked", "invalid findings", history)}
             return {"history": history, "result": _result(spec.role.value, "completed", move["findings"],
                                                           history, move.get("evidence", []))}
+        read = [h["observation"] for h in history if "observation" in h]
+        if len(read) >= brief["steps"]:  # the free step after the last read reports; it may not read again
+            return {"history": history, "result": _result(spec.role.value, "blocked", "step budget used up",
+                                                          history, last_observation=read[-1])}
         action, arguments = move.get("action"), move.get("action_input", {})
         if action not in spec.tools or not isinstance(arguments, dict):
             return {"history": history,
@@ -273,22 +298,21 @@ def specialist_graph(spec, run_tool):
         except Exception as error:  # noqa: BLE001 - the next step may retry once (Reflexion), within budget
             observation = {"error": failure_code(error)}
         history[-1]["observation"] = observation
-        if len(history) >= brief["steps"]:
-            return {"history": history, "result": _result(spec.role.value, "blocked", "step budget used up",
-                                                          history, last_observation=observation)}
         return {"history": history}
 
     def run(state, config=None):
         state = dict(state)
-        while not state.get("result"):  # every step either ends the work or uses budget, so this stops
+        while not state.get("result"):  # each step reads within budget or ends the work, so this stops
             state.update(step(state, config or {}))
         return state
     return run
 
 
-def coordinator(engine, specialists, run_tool):
+def coordinator(engine, specialists, run_tool, records=None):
     """One turn as turn(state, config) -> state; start one with start_turn(). run_tool is the default; a turn
-    passes its own as config["configurable"]["run_tool"], which reaches every specialist."""
+    passes its own as config["configurable"]["run_tool"], which reaches every specialist, and may pass
+    config["configurable"]["planned"](plan), called once the plan is made and before anyone is dispatched.
+    records: {record name: description} of the customer's own records (delegate())."""
     runs = {role: specialist_graph(spec, run_tool) for role, spec in specialists.items()}
 
     def plan(state):
@@ -296,7 +320,7 @@ def coordinator(engine, specialists, run_tool):
             raise ValueError("a turn needs its tenant, case, session, principal and message")
         message = masked_text(state["message"])
         return {"turn_id": state.get("turn_id") or str(uuid.uuid4()),
-                "plan": delegate(engine, specialists, Masked(message)).as_state()}
+                "plan": delegate(engine, specialists, Masked(message), records).as_state()}
 
     def run_all(ready, config):
         """The specialists of these briefs, in parallel."""
@@ -328,6 +352,9 @@ def coordinator(engine, specialists, run_tool):
     def turn(state, config=None):
         config = config or {}
         state = {"results": [], **state, **plan(state)}
+        planned = (config.get("configurable") or {}).get("planned")
+        if planned:
+            planned(state["plan"])
         first, _ = briefs(state, False)
         if first:  # no first wave (a hand-off plan): straight to join
             state["results"] = merge_results([], run_all(first, config))

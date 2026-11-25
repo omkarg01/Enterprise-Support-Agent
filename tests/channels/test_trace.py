@@ -56,3 +56,15 @@ def test_a_blocked_message_stops_at_the_coordinator():
 def test_a_record_from_before_steps_were_kept_still_has_a_summary():
     view = customer_trace("turn-3", "escalate", None, AT, "T1_VERIFIED")
     assert view["summary"].startswith("Handed to a specialist") and view["agents"][0]["name"] == "Coordinator"
+
+
+def test_every_tier_sees_the_models_that_wrote_the_turn():
+    steps = {**ANSWERED, "specialists": [{"role": "billing", "outcome": "answered", "claims": 2,
+                                          "model": "gemini-3.5-flash-lite"}],
+             "answer": {"outcome": "answered", "retried": False, "model": "claude-haiku-5-5"}}
+    for tier in ("T0_ANON", "T1_VERIFIED"):
+        assert customer_trace("turn-4", "answer", steps, AT, tier)["models"] == [
+            "gemini-3.5-flash-lite", "claude-haiku-5-5"]
+    knowledge = customer_trace("turn-4", "answer", steps, AT, "T1_VERIFIED")["agents"][1]
+    assert knowledge["calls"][-1]["args"] == {"model": "claude-haiku-5-5"}
+    assert customer_trace("turn-5", "answer", ANSWERED, AT, "T1_VERIFIED")["models"] == []  # an older record

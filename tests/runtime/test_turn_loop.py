@@ -20,12 +20,15 @@ import pytest
 from fastapi.testclient import TestClient
 from qdrant_client import QdrantClient
 
+from agents.topology import NO_CONFIDENT_FIT
 from channels import sessions
 from channels.api import turns
 from channels.api.envelope import InboundTurn, TurnAction
 from channels.identity import otp
 from channels.identity.server import build_app
 from channels.identity.service import Identity
+from channels.identity.tiers import Tier
+from core.context.assembler import delimit
 from core.orchestrator import case_state
 from core.orchestrator.case_state import MemoryStore
 from core.orchestrator.decisions import DecisionEngine, JevClient
@@ -38,7 +41,7 @@ from hitl.tickets import Tickets
 from knowledge.ingest import pipeline as ingest
 from knowledge.retrieval.pipeline import RestrictedMatch, Retriever
 from reliability.fallbacks import openai_compatible
-from runtime import FAILED, HANDOFF, NoJev, Services, TurnLoop, connector, production, tickets
+from runtime import FAILED, HANDOFF, STANDING, NoJev, Services, TurnLoop, connector, production, tickets
 from safety.governance import records
 from safety.governance.records import DecisionLog
 from safety.pii.tokens import Tokenizer
@@ -79,8 +82,14 @@ class World:
     reports (None: one claim citing every passage it was shown)."""
 
     def __init__(self, triage=None, model_down=False, lead="generalist", claims=None, read=None,
-                 specialists_down=False, redirecting=False, wants_ticket=False):
+                 specialists_down=False, redirecting=False, wants_ticket=False, lead_confidence=0.9,
+                 standalone=None, records_only=False, record=None, needs=()):
+        self.needs = needs                         # roles Jev says the inquiry also needs (co-activation)
+        self.records_only = records_only           # Jev: the customer's own records alone answer it (B1)
+        self.record = record                       # Jev: the own record the inquiry is about (A4)
         self.triage = triage or triage_answers("GENERAL_INQUIRY", 0.95, 1, 0.05)
+        self.lead_confidence = lead_confidence     # Jev's lead confidence (under 0.5: no confident fit)
+        self.standalone = standalone               # what the retrieval rewrite turns the message into
         self.model_down, self.jev, self.model = model_down, [], []
         self.lead, self.claims, self.read = lead, claims, read   # read: the record a specialist asks for
         self.specialists_down = specialists_down   # every specialist's model call fails (B23)
@@ -97,7 +106,11 @@ class World:
                        "category": {"type": "choice", "choice": "refund", "confidence": 0.9}}
         elif "lead" in body["questions"]:               # delegation: one lead, nobody joins
             answers = {qid: {"type": "noul", "noul": 0.05} for qid in body["questions"]}
-            answers["lead"] = {"type": "choice", "choice": self.lead, "confidence": 0.9}
+            answers["lead"] = {"type": "choice", "choice": self.lead, "confidence": self.lead_confidence}
+            answers["records_only"] = {"type": "noul", "noul": 0.95 if self.records_only else 0.05}
+            answers.update({f"needs_{role}": {"type": "noul", "noul": 0.95} for role in self.needs})
+            if "record" in body["questions"]:                # which own record it is about (A4)
+                answers["record"] = {"type": "choice", "choice": self.record or "none", "confidence": 0.9}
         elif "redirect" in body["questions"]:
             elsewhere = REDIRECTING in json.dumps(body["state"])
             answers = {"redirect": {"type": "choice", "choice": "hand_off" if elsewhere else "self_service",
@@ -115,7 +128,7 @@ class World:
             return httpx.Response(503, json={"error": "overloaded"})
         if "standalone search query" in prompt:
             latest = prompt.split("Latest message:\n", 1)[1].strip()
-            text = json.dumps({"standalone_query": latest, "exact_identifiers": []})
+            text = json.dumps({"standalone_query": self.standalone or latest, "exact_identifiers": []})
         elif "Classify the customer conversation" in prompt or "Classify the customer message" in prompt:
             text = json.dumps({"intent": "GENERAL_INQUIRY", "severity": 1, "missing_details": False,
                                "confidence": 0.95})
@@ -123,6 +136,8 @@ class World:
             text = "Which page were you on when the error appeared?"
         elif "specialist of the support team" in prompt and self.read and f"- {self.read}:" in prompt:
             text = json.dumps({"action": self.read})
+        elif "specialist of the support team" in prompt and callable(self.claims):   # claims per prompt
+            text = json.dumps(self.claims(prompt))
         elif "specialist of the support team" in prompt and RECORD_ID.search(prompt):
             text = json.dumps([{"topic": "open_invoice", "text": "Your latest invoice is open.",
                                 "evidence": RECORD_ID.findall(prompt)}])
@@ -257,6 +272,23 @@ def test_a_second_message_in_the_conversation_is_answered_too(stack):
     assert runner.run(inbound("And if I use single sign-on?", conversation)) == "answered"
 
 
+def test_a_later_question_reads_the_whole_dialogue_and_only_it_is_answered(stack):
+    world, conversation = World(), f"c-{uuid.uuid4().hex[:8]}"
+    runner = loop(stack, world)
+    first, second = "Where can I find my invoices?", "How do refunds work?"
+    assert runner.run(inbound(first, conversation)) == "answered"
+    world.model.clear()
+    assert runner.run(inbound(second, conversation)) == "answered"
+    prompts = [m[-1]["content"] for m in world.model]
+    (draft,) = [p for p in prompts if "specialist findings" in p]
+    assert f"user: {first}\nassistant: {ANSWER}\nuser: {second}" in draft        # questions and replies
+    assert delimit(second, "latest question") in draft                         # the one to answer
+    assert all(delimit(second, "customer message") in p and f"assistant: {ANSWER}" in p
+               for p in specialist_prompts(world))
+    (rewrite,) = [p for p in prompts if "standalone search query" in p]
+    assert rewrite.split("Latest message:\n", 1)[1].strip() == second
+
+
 # Never silence --------------------------------------------------------------------------------------------
 
 def test_an_injection_is_answered_at_the_edge_and_reaches_no_model(stack):
@@ -356,14 +388,19 @@ def test_a_turn_posted_to_the_api_is_answered_on_its_event_stream(stack, monkeyp
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         with psycopg.connect(DSN, autocommit=True) as conn:
-            kinds = [kind for _, kind, data in turns.events_after(conn, "t_us", conversation, 0)
-                     if data.get("turn_id") == turn_id]
+            events = [(kind, data) for _, kind, data in turns.events_after(conn, "t_us", conversation, 0)
+                      if data.get("turn_id") == turn_id]
+        kinds = [kind for kind, _ in events]
         if "final" in kinds:
             break
         time.sleep(0.2)
     dispatcher.close()
     assert kinds[0] == "status" and kinds[-1] == "final"                     # queued, working, ..., final
-    assert kinds.count("status") == 2
+    states = [data["state"] for kind, data in events if kind == "status"]
+    assert states[:2] == ["queued", "working"] and set(states[2:]) == {"progress"}
+    shown = [data["text"] for kind, data in events if kind == "status" and data["state"] == "progress"]
+    assert "Searching our help articles" in shown and "Checking the answer" in shown  # each stage, as it starts
+    assert len(shown) == len(set(shown))
 
 
 def test_how_this_was_answered_is_summary_only_when_anonymous_and_full_once_signed_in(stack, monkeypatch):
@@ -455,8 +492,11 @@ def test_a_turn_whose_worker_died_mid_statechart_resumes_there_and_ends_once(sta
     assert saved["pending"] and saved["event"]["id"] == turn.turn_id
     triaged = sum(1 for body in world.jev if "intent" in body["questions"])
     assert runner.run(turn) == "answered"                         # the retry
-    kinds = [kind for kind, _ in published(turn)]
-    assert kinds.count("final") == 1 and kinds.count("status") == 1 and "error" not in kinds
+    events = published(turn)
+    kinds = [kind for kind, _ in events]
+    shown = [data["text"] for kind, data in events if kind == "status"]
+    assert kinds.count("final") == 1 and "error" not in kinds
+    assert shown.count("Looking into it") == 1 and len(shown) == len(set(shown))  # the retry repeats no status
     state = runner.graph.get_state(thread("t_us", turn.conversation_id))
     assert len(state["path"]) == len(set(state["path"])) and state["path"][-1] == "RESOLVED"
     assert sum(1 for body in world.jev if "intent" in body["questions"]) == triaged  # not triaged again
@@ -564,6 +604,129 @@ def test_a_signed_in_customer_is_answered_from_their_own_record_read_through_the
     assert [kind for kind, _ in published(turn)][-1] == "final"
 
 
+def test_account_ops_reads_the_customers_own_services_and_the_trace_shows_the_plan_and_offers(stack):
+    world = World(lead="account_ops", read="nimbus_support.my_services")
+    turn = inbound("What services are running on my account?", tier="T1_VERIFIED", principal="sarah",
+                   session=signed_in("T1_VERIFIED"))
+    assert loop(stack, world, tools=True).run(turn) == "answered"
+    steps = trace_steps(turn)
+    assert steps["tools"] == [{"role": "account_ops", "tool": "nimbus_support.my_services"}]
+    assert "nimbus_support.my_services" in steps["offered"]["account_ops"]
+    assert "nimbus_account.my_account" in steps["offered"]["account_ops"]          # T1 since 2026-11-22
+    assert steps["plan"]["lead"] == "account_ops" and steps["plan"]["handoff"] is None
+    assert steps["plan"]["assignments"][0] == {"role": "account_ops", "steps": 2, "after_lead": False}
+
+
+def running(prompt):
+    """Account ops counts three running services, technical four: one topic, two numbers."""
+    n = "3" if "account ops specialist" in prompt else "4"
+    evidence = RECORD_ID.findall(prompt) or PASSAGE_ID.findall(prompt)
+    return [{"topic": "running_services", "text": f"{n} of your services are running", "value": n,
+             "unit": "services", "evidence": evidence}] if evidence else []
+
+
+def services_turn():
+    return inbound("What services are running on my account?", tier="T1_VERIFIED", principal="sarah",
+                   session=signed_in("T1_VERIFIED"))
+
+
+def test_a_lead_that_reads_the_record_asked_about_answers_alone(stack):
+    world = World(lead="account_ops", needs=("technical",), record="my_services",
+                  read="nimbus_support.my_services")
+    turn = services_turn()
+    assert loop(stack, world, tools=True).run(turn) == "answered"
+    steps = trace_steps(turn)
+    assert steps["plan"]["record"] == "my_services" and [a["role"] for a in steps["plan"]["assignments"]] \
+        == ["account_ops"]
+    assert steps["tools"] == [{"role": "account_ops", "tool": "nimbus_support.my_services"}]
+
+
+def test_two_readings_of_the_same_record_keep_the_leads_instead_of_a_hand_off(stack):
+    world = World(lead="account_ops", needs=("technical",), read="nimbus_support.my_services", claims=running)
+    turn = services_turn()
+    assert loop(stack, world, tools=True).run(turn) == "answered"
+    steps = trace_steps(turn)
+    assert sorted(t["role"] for t in steps["tools"]) == ["account_ops", "technical"]   # both read it
+    assert steps["answer"]["lead_kept"] == ["running_services"]
+
+
+def test_a_numeric_discrepancy_hand_off_records_what_disagreed(stack):
+    world = World(lead="account_ops", needs=("technical",), claims=running)
+    turn = inbound("How do I reset my password?")
+    assert loop(stack, world).run(turn) == "handed_off"
+    answer = trace_steps(turn)["answer"]
+    assert answer["outcome"] == "NUMERIC_DISCREPANCY"
+    assert answer["values"] == {"running_services": {"account_ops": "3 services", "technical": "4 services"}}
+
+
+def test_an_email_verified_customer_is_answered_from_their_own_invoices(stack):
+    world = World(lead="billing", read="nimbus_account.my_invoices")
+    turn = inbound("Is my latest invoice paid?", tier="T1_VERIFIED", principal="sarah",
+                   session=signed_in("T1_VERIFIED"))
+    assert loop(stack, world, tools=True).run(turn) == "answered"
+    assert tool_audit_of(turn) == [("nimbus_account.my_invoices", "ok", "sarah", None)]
+
+
+def test_a_question_the_customers_own_records_answer_searches_no_documentation(stack):
+    world = World(lead="account_ops", read="nimbus_support.my_services", records_only=True)
+    turn = inbound("What services are running on my account?", tier="T1_VERIFIED", principal="sarah",
+                   session=signed_in("T1_VERIFIED"))
+    assert loop(stack, world, tools=True).run(turn) == "answered"
+    steps = trace_steps(turn)
+    assert steps["retrieval"]["skipped"] and steps["plan"]["records_only"]
+    assert steps["tools"] == [{"role": "account_ops", "tool": "nimbus_support.my_services"}]
+    assert "Searching our help articles" not in [d.get("text") for k, d in published(turn) if k == "status"]
+    assert not any("Rank the passages" in m[-1]["content"] for m in world.model)       # no rerank either
+    assert all("(no knowledge passage matched)" in p for p in specialist_prompts(world))
+    assert "citation" not in [kind for kind, _ in published(turn)]
+
+
+def test_a_guest_whose_question_only_records_answer_still_gets_the_documentation(stack):
+    world = World(records_only=True)
+    turn = inbound("How do I reset my password?")
+    assert loop(stack, world).run(turn) == "answered"           # no record to read: the search still runs
+    assert "skipped" not in trace_steps(turn)["retrieval"]
+
+
+def test_the_specialists_and_the_writer_are_told_the_customers_verified_tier(stack):
+    world = World(lead="account_ops", read="nimbus_support.my_services")
+    signed = inbound("What services are running on my account?", tier="T1_VERIFIED", principal="sarah",
+                     session=signed_in("T1_VERIFIED"))
+    assert loop(stack, world, tools=True).run(signed) == "answered"
+    prompts = [m[-1]["content"] for m in world.model]
+    (draft,) = [p for p in prompts if "specialist findings" in p]
+    assert STANDING[Tier.T1_VERIFIED] in draft and all(STANDING[Tier.T1_VERIFIED] in p
+                                                         for p in specialist_prompts(world))
+    world = World()
+    assert loop(stack, world).run(inbound("How do I reset my password?")) == "answered"
+    assert all(STANDING[Tier.T0_ANON] in p for p in specialist_prompts(world))
+
+
+def test_with_no_confident_lead_the_generalist_answers_instead_of_a_hand_off(stack):
+    world = World(lead_confidence=0.3)
+    turn = inbound("How do I reset my password?")
+    assert loop(stack, world).run(turn) == "answered"
+    plan = trace_steps(turn)["plan"]
+    assert plan["handoff"] == NO_CONFIDENT_FIT and plan["fallback"] == "generalist"
+    assert specialist_prompts(world) and all("generalist specialist" in p for p in specialist_prompts(world))
+
+
+def test_with_no_confident_lead_and_nothing_the_generalist_can_say_a_person_takes_it(stack):
+    world = World(lead_confidence=0.3, claims=[])
+    turn = inbound("How do I reset my password?")
+    assert loop(stack, world).run(turn) == "handed_off"
+    assert trace_steps(turn)["answer"]["outcome"] == "NOTHING_TO_SAY"
+
+
+def test_jev_and_the_specialists_get_the_standalone_question_the_rewrite_resolved(stack):
+    world = World(standalone="How do I reset my password with single sign-on?")
+    turn = inbound("And with SSO?")
+    assert loop(stack, world).run(turn) == "answered"
+    (delegation,) = [body for body in world.jev if "lead" in body["questions"]]
+    assert delegation["state"]["message"] == world.standalone
+    assert all(delimit(world.standalone, "customer message") in p for p in specialist_prompts(world))
+
+
 def test_an_anonymous_customer_is_offered_no_account_record_and_is_answered_from_passages(stack):
     world = World(lead="billing", read="nimbus_account.my_invoices")
     turn = inbound("How do I reset my password?", principal="anon:7", session=signed_in("T0_ANON", "anon:7"))
@@ -580,7 +743,7 @@ def test_without_jev_the_generalist_may_read_any_record_the_customers_tier_allow
     offered = specialist_prompts(world)[0]
     assert {"- nimbus_status.service_status:", "- nimbus_support.my_tickets:",
             "- nimbus_support.my_subscriptions:"} <= set(re.findall(r"- nimbus_\w+\.\w+:", offered))
-    assert "my_invoices" not in offered and "my_account" not in offered               # SSO only
+    assert "- nimbus_account.my_invoices:" in offered and "- nimbus_account.my_account:" in offered  # T1 too
     assert tool_audit_of(turn) == [("nimbus_support.my_tickets", "ok", "sarah", None)]
 
 

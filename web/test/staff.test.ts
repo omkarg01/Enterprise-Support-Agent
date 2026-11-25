@@ -3,8 +3,8 @@ import { expect, test } from "vitest";
 
 import {
   NO_CUSTOMER_FILTER, NO_FILTER, NO_SERVICE_FILTER, actionsFor, actorLabel, canMove, countBy, didWhat, filterCustomers,
-  filterServices, filterTickets, movesFor, optionsOf, paginate, serviceHealth, sortTickets, summary,
-  type Customer, type StaffService, type StaffTicket,
+  filterServices, filterTickets, movesFor, optionsOf, paginate, percent, serviceHealth, sortTickets, summary, worstFirst,
+  type Customer, type Rating, type StaffService, type StaffTicket,
 } from "../lib/staff.ts";
 import { doneBy } from "../lib/services.ts";
 import { eventText, eventTitle, statusLabel } from "../lib/tickets.ts";
@@ -106,4 +106,18 @@ test("the customer's timeline names staff replies and shows why staff changed th
   expect(actorLabel("sarah@x.com")).toBe("Customer");
   expect(doneBy({ action_id: "ACT-00001", service: "a", action: "stop", replicas: null, conversation_id: "staff", at, actor: "staff:demo" }))
     .toBe("Support staff");
+});
+
+test("thumbs down list most severe first, unknown severity last, then newest", () => {
+  const rating = (id: number, signal: "up" | "down", severity: number | null, at: string): Rating => ({
+    id, tenant_id: "t_us", conversation_id: "c", turn_id: `t${id}`, signal, comment: null, category: null, severity, at,
+    question: "q", answer: "a", citations: [], models: [],
+  });
+  const sorted = worstFirst([
+    rating(1, "down", null, "2026-11-20T10:00:00Z"), rating(2, "up", 1, "2026-11-20T11:00:00Z"),
+    rating(3, "down", 0.25, "2026-11-19T10:00:00Z"), rating(4, "down", 1, "2026-11-18T10:00:00Z"),
+    rating(5, "down", 0.25, "2026-11-20T09:00:00Z"),
+  ]);
+  expect(sorted.map((r) => r.id)).toEqual([4, 5, 3, 1]);
+  expect([percent(null), percent(2 / 3)]).toEqual(["—", "67%"]);
 });

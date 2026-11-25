@@ -111,6 +111,8 @@ test("a guest's ticket card leads to the email sign-in, and My tickets asks them
   await page.goto("/");
   await page.getByRole("button", { name: "Sign in with your email" }).click();
   await expect(page.getByLabel("Work email")).toBeFocused();
+  await shot(page, "sign-in");
+  await page.keyboard.press("Escape"); // the sign-in pop-up is modal
   await page.getByRole("link", { name: "My tickets" }).click();
   await expect(page.getByText("Sign in to see your tickets")).toBeVisible();
 });

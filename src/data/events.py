@@ -7,7 +7,9 @@ caller rebuilds the conversation from its transcript with rebuild_from_transcrip
 conversation_messages keeps every customer message and every reply (final, handoff) as raw text, so the
 portal's History list can reopen a past conversation: its stream, asked from Last-Event-ID 0, sends the
 transcript(). Built outside the spec at the user's request (2026-11-17): it reopens the rule that raw PII is
-not kept. It lives and dies with its conversation (retention 24 months, erasure).
+not kept. It lives and dies with its conversation (retention 24 months, erasure). A reply also keeps its
+turn id and the citations sent with it (2026-11-19), so a reopened chat still shows its sources and its
+"How this was answered" link (the trace itself is read from decision_records, which are kept).
 
 The tables' SQL lives here (module-owned schema, DECISION-d4b79fe1) and is applied with apply_schema().
 """
@@ -61,12 +63,17 @@ CREATE POLICY tenant_isolation ON conversation_messages
 ALTER TABLE conversation_messages OWNER TO app_owner;
 GRANT SELECT, INSERT ON conversation_messages TO app_runtime;
 """
+MESSAGES_TURNS_NAME = "events_0003_conversation_message_turns.sql"
+SCHEMA_MESSAGES_TURNS = """
+ALTER TABLE conversation_messages ADD COLUMN turn_id text, ADD COLUMN citations jsonb NOT NULL DEFAULT '[]';
+"""
 KEPT = {"final": "assistant", "handoff": "system"}  # event type -> the role its text is kept under
 
 
 def apply_schema(database):
     """Create each table once, recorded in the schema_migrations ledger like the files in migrations/."""
-    for name, sql in ((SCHEMA_NAME, SCHEMA), (MESSAGES_NAME, SCHEMA_MESSAGES)):
+    for name, sql in ((SCHEMA_NAME, SCHEMA), (MESSAGES_NAME, SCHEMA_MESSAGES),
+                      (MESSAGES_TURNS_NAME, SCHEMA_MESSAGES_TURNS)):
         if not psql(database, f"SELECT 1 FROM schema_migrations WHERE name = '{name}'"):
             psql(database, f"BEGIN;\n{sql}\nINSERT INTO schema_migrations (name) VALUES ('{name}');\nCOMMIT;\n")
 
@@ -88,24 +95,34 @@ class EventLog:
                 "VALUES (%s, %s, %s, %s::jsonb) RETURNING id",
                 (tenant_id, conversation_id, event_type, json.dumps(data))).fetchone()
             if event_type in KEPT and data.get("text"):
-                self.keep(tenant_id, conversation_id, KEPT[event_type], str(data["text"]))
+                turn_id = data.get("turn_id")
+                citations = [row for (row,) in self.conn.execute(
+                    "SELECT data - 'turn_id' FROM outbound_event_log WHERE conversation_id = %s "
+                    "AND event_type = 'citation' AND data ->> 'turn_id' = %s ORDER BY id",
+                    (conversation_id, turn_id)).fetchall()] if turn_id else []
+                self.keep(tenant_id, conversation_id, KEPT[event_type], str(data["text"]), turn_id, citations)
         self.conn.execute("SELECT pg_notify(%s, %s)", (CHANNEL, conversation_id))
         return str(event_id)
 
-    def keep(self, tenant_id, conversation_id, role, text):
-        """Add one message to the conversation's transcript (History)."""
+    def keep(self, tenant_id, conversation_id, role, text, turn_id=None, citations=()):
+        """Add one message to the conversation's transcript (History); a reply with its turn and sources."""
         with self.conn.transaction():
             self._context(tenant_id)
-            self.conn.execute("INSERT INTO conversation_messages (tenant_id, conversation_id, role, text) "
-                              "VALUES (%s, %s, %s, %s)", (tenant_id, conversation_id, role, text))
+            self.conn.execute("INSERT INTO conversation_messages (tenant_id, conversation_id, role, text, "
+                              "turn_id, citations) VALUES (%s, %s, %s, %s, %s, %s::jsonb)",
+                              (tenant_id, conversation_id, role, text, turn_id, json.dumps(list(citations))))
 
     def transcript(self, tenant_id, conversation_id):
-        """The conversation's messages, oldest first, as [{"role", "text", "at"}]."""
+        """The conversation's messages, oldest first, as [{"role", "text", "at"}], a reply also with its
+        "turn_id" and "citations" when it has them."""
         with self.conn.transaction():
             self._context(tenant_id)
-            rows = self.conn.execute("SELECT role, text, created_at FROM conversation_messages "
-                                     "WHERE conversation_id = %s ORDER BY id", (conversation_id,)).fetchall()
-        return [{"role": role, "text": text, "at": at.isoformat()} for role, text, at in rows]
+            rows = self.conn.execute("SELECT role, text, created_at, turn_id, citations "
+                                     "FROM conversation_messages WHERE conversation_id = %s ORDER BY id",
+                                     (conversation_id,)).fetchall()
+        return [{"role": role, "text": text, "at": at.isoformat(),
+                 **({"turn_id": turn_id} if turn_id else {}), **({"citations": cited} if cited else {})}
+                for role, text, at, turn_id, cited in rows]
 
     def replay(self, tenant_id, conversation_id, last_event_id):
         """Events after last_event_id as (id, type, data), or None if that event is unknown or expired."""

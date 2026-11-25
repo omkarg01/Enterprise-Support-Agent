@@ -24,7 +24,7 @@ A `Tenant Owner` or `Billing Administrator` (verified at Tier T2 via corporate S
 
 ## Required evidence to open a Nimbus Billing Dispute
 
-When raising a billing dispute through **Organization Settings > Billing & Plan > Invoices > Dispute Invoice** or via web chat with Nimbus Support (which escalates to `queue-billing-ops` if the disputed amount is **$1,000 USD or higher**), provide the following mandatory information:
+When raising a billing dispute through **Organization Settings > Billing & Plan > Invoices > Dispute Invoice** (disputes of **$1,000 USD or higher** are reviewed by `queue-billing-ops`), provide the following mandatory information:
 
 1. **Tenant ID and Organization Name:** For example, `tnt_01H9X8K2M4P` (`Acme Retail` or `Initech Logistics`).
 2. **Disputed Invoice Number and Issue Date:** For example, `inv_2026_10_88412` issued on `2026-10-01`.

@@ -32,8 +32,10 @@ from data.erasure import ErasureRequest, start_erasure, subject_hash
 from data.keys import KeyShredded, KeyStore, OpenBaoTransit, decrypt_field, encrypt_field
 from data.migrate import migrate, psql
 from data.storage import LocalStore, read_snapshot
+from evals import regressions
 from hitl import tickets
 from hitl.tickets import Tickets
+from improvement import feedback
 from knowledge.index.store import Index
 from knowledge.ingest import pipeline as ingest
 from knowledge.ingest.pipeline import Document, Ingestion
@@ -71,7 +73,7 @@ def stack():
         psql("postgres", f'CREATE DATABASE "{name}"')
         migrate(kind, name)
     for module in (sessions, turns, otp, events, dialogue, fact_store, records, case_state, tickets,
-                   inventory, retention):
+                   feedback, regressions, inventory, retention):
         module.apply_schema(MAIN)
     psql(MAIN, "INSERT INTO tenants (id, name, region) "
                "VALUES ('t_us', 'Acme', 'US'), ('t_eu', 'Globex', 'EU')")

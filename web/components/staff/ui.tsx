@@ -14,6 +14,7 @@ const TABS = [
   { href: "/staffs/customers", label: "Customers" },
   { href: "/staffs/services", label: "Services" },
   { href: "/staffs/handoffs", label: "Hand-offs" },
+  { href: "/staffs/feedback", label: "Feedback" },
 ];
 
 export function Shell({ children }: { children: ReactNode }) {

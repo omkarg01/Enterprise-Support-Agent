@@ -227,12 +227,14 @@ def test_with_jev_down_a_fallback_guess_never_runs_an_sop_on_its_own():
 def test_triage_sees_the_whole_thread_not_only_the_last_line():
     jev = FakeJev(triage_answers("PASSWORD_RESET", missing=False))
     triage_hook(DecisionEngine(jev))({"messages": [
+        {"role": "user", "content": "Where are my invoices?"},
+        {"role": "assistant", "content": "Under Billing & Plan."},                    # answered: not this one
         {"role": "user", "content": "I forgot the password"},
-        {"role": "assistant", "content": "Which service?"},
+        {"role": "assistant", "content": "Which service?", "kind": "question"},
         {"role": "user", "content": "yes, what is the process"},
     ]})
     sent = jev.sent[-1][0]["message"]
-    assert "forgot the password" in sent and "what is the process" in sent
+    assert "forgot the password" in sent and "what is the process" in sent and "invoices" not in sent
 
 
 def test_what_can_be_looked_up_is_not_a_missing_detail():

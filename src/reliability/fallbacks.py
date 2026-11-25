@@ -40,6 +40,7 @@ class Completion:
     provider: str
     input_tokens: int = 0
     output_tokens: int = 0
+    model: str | None = None      # the model that wrote it, shown in the customer's trace
 
 
 @dataclass(frozen=True)
@@ -121,7 +122,7 @@ def openai_compatible(name, base_url, model, api_key=None, timeout=30.0, transpo
             data = reply.json()
             usage = data.get("usage") or {}
             return Completion(data["choices"][0]["message"]["content"], name,
-                              usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+                              usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0), model)
         except (KeyError, IndexError, TypeError, ValueError) as error:
             raise ProviderError(name, f"malformed reply: {error}", transient=True) from error
 
@@ -166,6 +167,8 @@ def claude(api_key=None, model=CLAUDE_MODEL, effort="high", http_client=None, ba
         if response.stop_reason == "refusal":
             raise ProviderError("claude", "refused", refused=True)
         text = "".join(block.text for block in response.content if block.type == "text")
-        return Completion(text, "claude", response.usage.input_tokens, response.usage.output_tokens)
+        # a server-side fallback may have answered with another model: report the one that did
+        return Completion(text, "claude", response.usage.input_tokens, response.usage.output_tokens,
+                          getattr(response, "model", None) or model)
 
     return Provider("claude", complete, *usd_per_mtok)

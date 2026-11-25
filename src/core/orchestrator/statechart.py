@@ -19,7 +19,7 @@ import time
 
 from core.orchestrator.case_state import MemoryStore
 from core.orchestrator.planner import after_step
-from schemas.thread_state import APPEND, Stage, Step, Triage, UnsupportedSchema, merge, upgrade
+from schemas.thread_state import APPEND, Stage, Step, Triage, UnsupportedSchema, episode, merge, upgrade
 
 S = Stage
 TRANSITIONS = {
@@ -89,6 +89,13 @@ class Statechart:
             ran += 1
         return state
 
+    def append(self, config, **lists):
+        """Extend the saved state's list fields without running a node: the replies the runtime sent, so
+        the next turn reads the whole dialogue."""
+        key = _case(config)
+        state, version = self.store.load(*key)
+        self.store.save(*key, merge(state, lists), version)
+
 
 def build(hooks, store=None, read_only_tools=frozenset(), now=time.time):
     """The statechart on a case state store (a fresh MemoryStore when none is given)."""
@@ -130,7 +137,7 @@ def build(hooks, store=None, read_only_tools=frozenset(), now=time.time):
 
     def triage(state):
         result = Triage.model_validate(hooks["triage"](state))
-        user_turns = sum(1 for m in state.get("messages") or [] if m.get("role") == "user")
+        user_turns = sum(1 for m in episode(state.get("messages") or []) if m.get("role") == "user")
         # ponytail: one clarifying turn; a reply plus a known intent is enough to look up docs (W18 later)
         asked_once = user_turns >= 2 and result.intent != "UNKNOWN" and result.confidence >= 0.50
         if (result.acuity == 3 or result.missing_params) and not asked_once:

@@ -2,7 +2,7 @@
   "name": "support-agent-web",
   "private": true,
   "type": "module",
-  "description": "Customer support portal: chat, sign-in, citations, the why view and the execution trace.",
+  "description": "Customer support portal: chat, sign-in, citations and the execution trace.",
   "engines": { "node": ">=22.18" },
   "scripts": {
     "dev": "next dev -p 3000",

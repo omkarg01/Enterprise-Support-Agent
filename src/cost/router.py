@@ -68,6 +68,7 @@ class Reply:
     tier: int | None = None
     provider: str | None = None
     cascaded: bool = False
+    model: str | None = None
 
 
 class Router:
@@ -113,5 +114,6 @@ class Router:
                 return Reply("escalate", tier=current, provider=refusal.provider)
             outcome = "escalate"
             if verify(completion.text):
-                return Reply("answered", completion.text, current, completion.provider, cascaded=step == 1)
+                return Reply("answered", completion.text, current, completion.provider, cascaded=step == 1,
+                             model=completion.model)
         return Reply(outcome, tier=current)

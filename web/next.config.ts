@@ -6,6 +6,7 @@ const api = process.env.API_ORIGIN ?? (process.env.VERCEL ? undefined : "http://
 if (!api) throw new Error("set API_ORIGIN to the API's origin in the Vercel project settings");
 
 const config: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR ?? ".next", // the Playwright build uses its own, so a running dev server keeps its chunks
   compress: false, // gzip buffers the proxied event stream
   poweredByHeader: false,
   async rewrites() {

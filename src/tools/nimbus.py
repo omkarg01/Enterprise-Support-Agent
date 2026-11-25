@@ -83,7 +83,7 @@ GRANT SELECT, INSERT ON {t} TO app_runtime;
 SYSTEMS = {  # no hosts: the systems are tables, so a tool has nothing to reach on the network
     "nimbus_status": System("nimbus_status", frozenset(), "obo", "public-read-tools"),
     "nimbus_support": System("nimbus_support", frozenset(), "obo", "status-tools"),
-    "nimbus_account": System("nimbus_account", frozenset(), "obo", "account-tools"),
+    "nimbus_account": System("nimbus_account", frozenset(), "obo", "account-read-tools"),  # T1 reads
 }
 STAGES = {"DELIBERATING", "EXECUTING_SOP"}
 
@@ -143,10 +143,10 @@ def catalog(connect, identity):
                            "THEN s.settles_to ELSE s.status END AS status, s.replicas FROM nimbus_services s "
                            "WHERE s.principal_id = %(me)s ORDER BY s.kind DESC, s.name", "services")
     tool("nimbus_account.my_account","The customer's own account: company, plan and home region",
-         Tier.T2_SSO, "SELECT account_id, company, plan, region, since FROM nimbus_accounts "
+         Tier.T1_VERIFIED, "SELECT account_id, company, plan, region, since FROM nimbus_accounts "
                       "WHERE principal_id = %(me)s", "account")
     tool("nimbus_account.my_invoices", "The customer's own invoices with their amounts and payment status",
-         Tier.T2_SSO, "SELECT invoice_id, issued_on, amount_usd, status FROM nimbus_invoices "
+         Tier.T1_VERIFIED, "SELECT invoice_id, issued_on, amount_usd, status FROM nimbus_invoices "
                       "WHERE principal_id = %(me)s ORDER BY issued_on DESC", "invoices")
     return registry.freeze()
 

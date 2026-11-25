@@ -14,6 +14,9 @@ that runs it: used by deploy/vm/serve.py on the VM and by `python -m runtime ser
   checked pool on it (its role and tenant settings are transaction-local, so Neon's pooler is fine).
 - Tools: the specialists' read-only tools.nimbus catalog through tools.execution.Executor, audited (S11),
   with on-behalf-of tokens from the customer's live session (AGENT-02).
+- Thumbs on replies (improvement.feedback): comments masked with the turn loop's tokenizer and triaged by Jev
+  (behind Remasked, as the turn loop asks it); a critical one (severity >= 0.80) has no pager yet, so it is
+  logged and leads the staff console's Feedback page.
 - Sign-in codes: emailed over SMTP with STARTTLS (SMTP_HOST, SMTP_PORT default 587, SMTP_USER, SMTP_PASSWORD
   from the environment then OpenBao, SMTP_FROM default SMTP_USER); without SMTP_HOST they go to the log.
 """
@@ -36,6 +39,7 @@ from core.orchestrator.case_state import PostgresStore
 from core.orchestrator.decisions import DecisionEngine, JevClient
 from core.secrets import load_secret
 from cost.router import Router
+from improvement.feedback import Feedback
 from knowledge.retrieval.pipeline import Retriever
 from reliability.fallbacks import (
     AllProvidersFailed,
@@ -45,7 +49,7 @@ from reliability.fallbacks import (
     claude,
     openai_compatible,
 )
-from runtime import NoJev, Services, TurnLoop, connector
+from runtime import NoJev, Remasked, Services, TurnLoop, connector
 from safety.governance.records import DecisionLog
 from safety.pii.tokens import Tokenizer
 from safety.screening.pipeline import Screener, jev_confirm
@@ -190,14 +194,18 @@ def app(environ=os.environ):
     if environ.get("SUPPORT_AGENT_DEV_AUTH") == "1":
         raise SystemExit("refusing to serve with SUPPORT_AGENT_DEV_AUTH=1: anyone could sign in with a "
                          "header")
-    loop = TurnLoop(services(environ, store(database_url())))
+    turn_services = services(environ, store(database_url()))
+    loop = TurnLoop(turn_services)
     connect = connector(database_url())
+    # ponytail: no pager; a critical comment is a log line until on-call paging exists
+    feedback = Feedback(connect, turn_services.tokens, Remasked(turn_services.engine),
+                        lambda tenant, event: print(f"[feedback: critical] {tenant}: {event}", flush=True))
     dispatch = TemporalDispatcher(environ.get("TEMPORAL_ADDRESS", "127.0.0.1:7233"), loop)
     # Neon's free compute only scales to zero after 5 idle minutes, so nothing may query it on a timer: each
     # stream polls every 0.5 s and ends after 5 min (a visible portal tab reconnects with Last-Event-ID, a
     # hidden one waits until it is shown).
     api = build_app(None, Identity(connect, idp=None, send_otp=code_sender(environ)), dispatch=dispatch,
-                    poll_seconds=0.5, stream_seconds=300.0)
+                    poll_seconds=0.5, stream_seconds=300.0, feedback=feedback)
     api.state.turn_loop = loop
     api.include_router(staff_router(connect))  # the demo staff console: NO sign-in (register S20)
 

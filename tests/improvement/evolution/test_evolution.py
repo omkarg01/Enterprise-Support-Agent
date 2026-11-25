@@ -17,7 +17,8 @@ from channels.identity import otp
 from data import events
 from data.erasure import subject_hash
 from data.migrate import migrate, psql
-from evals import datasets
+from evals import datasets, regressions
+from improvement import feedback
 from improvement.evolution import (
     DRIFT_AT,
     Checkpoints,
@@ -108,8 +109,8 @@ def database():
     psql("postgres", f'DROP DATABASE IF EXISTS "{DB}" WITH (FORCE)')
     psql("postgres", f'CREATE DATABASE "{DB}"')
     migrate("main", DB)
-    for module in (sessions, turns, otp, events, dialogue, fact_store, records, inventory, retention,
-                   datasets):
+    for module in (sessions, turns, otp, events, dialogue, fact_store, records, feedback, regressions,
+                   inventory, retention, datasets):
         module.apply_schema(DB)                  # the erasure inventory's order (tests/erasure)
     psql(DB, "INSERT INTO tenants (id, name, region) VALUES ('t_us', 'Acme', 'US'), ('t_eu', 'Globex', 'EU')")
     rows = [("t_us", "US", "sarah", ["My invoice <EMAIL_1a2b3c4d> is wrong"]),

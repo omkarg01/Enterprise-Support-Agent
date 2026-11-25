@@ -6,5 +6,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   use: { baseURL: "http://127.0.0.1:3100" },
-  webServer: { command: "npx next build && npx next start -p 3100", url: "http://127.0.0.1:3100", timeout: 240_000 },
+  // Its own build directory: building into .next would pull the chunks from under a running `next dev`.
+  webServer: { command: "npx next build && npx next start -p 3100", url: "http://127.0.0.1:3100", timeout: 240_000,
+    env: { NEXT_DIST_DIR: ".next-e2e" } },
 });

@@ -43,7 +43,7 @@ To protect customer confidentiality across our multi-tenant platform, the Nimbus
 
 Users with the `Tenant Owner` or `Billing Administrator` role (authenticated via T2 SSO with MFA) can upgrade from Starter to Growth or add additional user seats at any time under **Organization Settings > Billing & Plan > Change Plan**. Upgrades and seat additions take effect immediately and generate a pro-rated USD invoice for the remainder of the current billing period.
 
-To upgrade to the **Enterprise** plan or expand an Enterprise annual seat block, click **Request Enterprise Quote** in the billing console or contact your Named Support Manager to execute an updated Enterprise Order Form.
+To upgrade to the **Enterprise** plan or expand an Enterprise annual seat block, click **Request Enterprise Quote** in the billing console to execute an updated Enterprise Order Form.
 
 ### Scheduling a plan downgrade or seat reduction
 

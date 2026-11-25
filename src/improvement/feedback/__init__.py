@@ -15,13 +15,20 @@ CI-D11; NFR-32 / CI-ADP-02: CI-D2, CI-D3).
   blameless postmortem, except one a specialist stopped before it ran (a rejection is the gate working).
 - live_metrics(): CSAT (share of thumbs up), customer effort (mean score) and first-contact resolution (one
   minus the reopen rate), the live numbers the release gate compares (evals.gate).
+- The portal's thumbs (built outside Genesis, 2026-11-20): one vote per user per reply, final (a unique
+  index); a thumb may carry a comment, triaged like a survey's, and a comment that still holds personal data
+  after masking is dropped while the vote is kept. ratings() is what the staff console's Feedback page and
+  scripts/feedback_report.py read: each thumb with its reply, the question before it and the reply's models.
 """
 
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+import psycopg
+
+from channels.api.trace import models
 from core.orchestrator.decisions import JevUnavailable, Masked
 from data.migrate import psql
 from improvement.feedback import taxonomy
@@ -72,12 +79,22 @@ CREATE POLICY tenant_isolation ON feedback_events
 ALTER TABLE feedback_events OWNER TO app_owner;
 GRANT SELECT, INSERT, DELETE ON feedback_events TO app_runtime;
 """
+ONE_VOTE_NAME = "improvement_0002_one_thumb_per_reply.sql"
+ONE_VOTE = """
+CREATE UNIQUE INDEX feedback_events_one_thumb ON feedback_events (tenant_id, user_hash, turn_id)
+  WHERE kind = 'thumbs';
+"""
 
 
 def apply_schema(database):
-    if not psql(database, f"SELECT 1 FROM schema_migrations WHERE name = '{SCHEMA_NAME}'"):
-        psql(database, f"BEGIN;\n{SCHEMA}\nINSERT INTO schema_migrations (name) VALUES ('{SCHEMA_NAME}');\n"
-                       "COMMIT;\n")
+    for name, sql in ((SCHEMA_NAME, SCHEMA), (ONE_VOTE_NAME, ONE_VOTE)):
+        if not psql(database, f"SELECT 1 FROM schema_migrations WHERE name = '{name}'"):
+            psql(database, f"BEGIN;\n{sql}\nINSERT INTO schema_migrations (name) VALUES ('{name}');\n"
+                           "COMMIT;\n")
+
+
+class AlreadyRated(Exception):
+    """The user has rated this reply: the first vote is final."""
 
 
 def _context(conn, tenant_id):
@@ -168,9 +185,37 @@ class Feedback:
                 "%s, %s, %s, %s) RETURNING id", row).fetchone()
         return event_id
 
-    def thumbs(self, tenant_id, principal_id, conversation_id, turn_id, up):
-        signal = "up" if up else "down"
-        return self._insert(tenant_id, principal_id, conversation_id, "thumbs", signal, turn_id)
+    def thumbs(self, tenant_id, principal_id, conversation_id, turn_id, up, comment=None):
+        """One vote per user per reply, final (AlreadyRated). Returns (event id, Triage or None, dropped):
+        dropped is True when the comment still held personal data after masking, so only the vote is kept."""
+        if self.votes(tenant_id, principal_id, conversation_id, turn_id):  # before Jev is asked anything
+            raise AlreadyRated(turn_id)
+        masked, dropped = None, False
+        if comment and comment.strip():
+            try:
+                masked = self._masked(comment)
+            except ValueError:
+                dropped = True
+        triaged = triage(self.engine, Masked(masked)) if masked else None
+        try:
+            event_id = self._insert(tenant_id, principal_id, conversation_id, "thumbs",
+                                    "up" if up else "down", turn_id, comment=masked, triaged=triaged)
+        except psycopg.errors.UniqueViolation:  # a second click that raced the first
+            raise AlreadyRated(turn_id) from None
+        if triaged and triaged.page:
+            self.page(tenant_id, {"event_id": event_id, "category": triaged.category,
+                                  "severity": triaged.severity, "comment": masked})
+        return event_id, triaged, dropped
+
+    def votes(self, tenant_id, principal_id, conversation_id, turn_id=None):
+        """{turn id: "up" | "down"}: the user's thumbs in one conversation (or on one reply)."""
+        with self.connect() as conn, conn.transaction():
+            _context(conn, tenant_id)
+            rows = conn.execute(
+                "SELECT turn_id, signal FROM feedback_events WHERE kind = 'thumbs' AND user_hash = %s "
+                "AND conversation_id = %s AND (%s::text IS NULL OR turn_id = %s)",
+                (subject_hash(tenant_id, principal_id), conversation_id, turn_id, turn_id)).fetchall()
+        return dict(rows)
 
     def survey(self, tenant_id, principal_id, conversation_id, ces, comment=None):
         """The post-resolution card: effort 1 (effortless) to 5, and optional free text, triaged by Jev."""
@@ -279,3 +324,56 @@ def live_metrics(events, conversations, resolved):
             "reask_rate": rate(implicit["reask"], conversations),
             "abandonment_rate": rate(implicit["abandon"], conversations),
             "reopen_rate": reopen}
+
+
+# The portal's thumbs, for the staff console and the CLI report ---------------------------------------------
+
+RATINGS = """
+SELECT f.id, f.conversation_id, f.turn_id, f.signal, f.comment, f.category, f.severity, f.created_at,
+       r.text, r.citations,
+       (SELECT q.text FROM conversation_messages q WHERE q.conversation_id = f.conversation_id
+          AND q.role = 'user' AND q.id < r.id ORDER BY q.id DESC LIMIT 1),
+       (SELECT d.trace -> 'steps' FROM decision_records d WHERE d.conversation_id = f.conversation_id
+          AND d.turn_id = f.turn_id ORDER BY d.id DESC LIMIT 1)
+FROM feedback_events f
+LEFT JOIN LATERAL (SELECT m.id, m.text, m.citations FROM conversation_messages m
+                   WHERE m.conversation_id = f.conversation_id AND m.turn_id = f.turn_id
+                   AND m.role = 'assistant' ORDER BY m.id LIMIT 1) r ON true
+WHERE f.kind = 'thumbs' AND f.created_at >= %s
+"""
+
+
+def ratings(connect, tenants, since):
+    """Every thumb since `since` in `tenants`, newest first, each tenant read under its row-level security:
+    the reply (raw, as History keeps it), the question before it, the comment (masked) and the reply's
+    models."""
+    out = []
+    with connect() as conn:
+        for tenant in tenants:
+            with conn.transaction():
+                _context(conn, tenant)
+                rows = conn.execute(RATINGS, (since,)).fetchall()
+            out += [{"id": id_, "tenant_id": tenant, "conversation_id": conversation, "turn_id": turn,
+                     "signal": signal, "comment": comment, "category": category,
+                     "severity": None if severity is None else float(severity), "at": at.isoformat(),
+                     "question": question, "answer": answer, "citations": citations or [],
+                     "models": models(steps or {})}
+                    for (id_, conversation, turn, signal, comment, category, severity, at, answer, citations,
+                         question, steps) in rows]
+    return sorted(out, key=lambda r: r["at"], reverse=True)
+
+
+def summary(rows):
+    """The thumbs-up rate overall, by day and by model, and the thumbs down by failure category."""
+    def rate(group):
+        up = sum(r["signal"] == "up" for r in group)
+        return {"up": up, "down": len(group) - up, "up_rate": up / len(group) if group else None}
+    by_day, by_model = defaultdict(list), defaultdict(list)
+    for r in rows:
+        by_day[r["at"][:10]].append(r)
+        for model in r["models"] or ["unknown"]:
+            by_model[model].append(r)
+    down = Counter(r["category"] or "no reason given" for r in rows if r["signal"] == "down")
+    return {"total": rate(rows), "by_day": {day: rate(g) for day, g in sorted(by_day.items())},
+            "by_model": {model: rate(g) for model, g in sorted(by_model.items())},
+            "down_by_category": dict(down.most_common())}

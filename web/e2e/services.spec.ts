@@ -68,7 +68,7 @@ test("stop a server from the chat and watch it stop under Services", async ({ pa
 
   const rail = page.getByRole("navigation", { name: "Portal" }).getByRole("listitem");
   await expect(rail.nth(0)).toHaveText("Services");
-  await expect(rail.nth(1)).toHaveText("Chat");
+  await expect(rail.nth(1)).toHaveText("New conversation");
 
   await expect(page.getByText("Stop payments-api-01?")).toBeVisible();
   await expect(page.getByText("Nothing changes until you confirm.")).toBeVisible();

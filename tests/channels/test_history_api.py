@@ -99,3 +99,21 @@ def test_a_confirm_button_turn_is_not_kept_as_something_the_customer_typed(princ
         turns.submit_turn(conn, principals["sarah"], "h5", "k1", TurnRequest(content="Raise ticket TKT-00001"),
                           lambda turn: None, TurnAction(type="confirm_ticket", proposal="TKT-00001"))
         assert EventLog(conn).transcript("t_us", "h5") == []
+
+
+def test_a_reopened_reply_keeps_its_turn_and_sources(client):
+    say(client, "sarah", "h6", "How do refunds work?", "k1")
+    cited = {"doc_id": "kb-refunds", "title": "How refunds work", "excerpt": "Within 30 days."}
+    with connect() as conn:
+        log = EventLog(conn)
+        turns.publish(log, "t_us", "h6", "citation", {"turn_id": "turn-9", **cited})
+        turns.publish(log, "t_us", "h6", "citation", {"turn_id": "turn-8", "doc_id": "kb-other"})
+        turns.publish(log, "t_us", "h6", "final",
+                      {"turn_id": "turn-9", "role": "assistant", "text": "30 days."})
+
+    with client.stream("GET", "/v1/conversations/h6/events",
+                       headers={"X-Who": "sarah", "Last-Event-ID": "0"}) as reply:
+        frames = [json.loads(line.removeprefix("data: ")) for line in reply.iter_lines()
+                  if line.startswith("data: ")]
+    assert {k: v for k, v in frames[-1].items() if k != "at"} == {
+        "history": True, "role": "assistant", "text": "30 days.", "turn_id": "turn-9", "citations": [cited]}

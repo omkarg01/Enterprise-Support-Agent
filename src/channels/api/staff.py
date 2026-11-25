@@ -14,6 +14,8 @@ the real one needs SSO and the staff directory (hitl.approval.verify_staff) befo
     POST /v1/staff/services/{tenant}/{id}/actions   {action, replicas}: stop, start, restart, scale
     GET  /v1/staff/activity                     recent ticket and service events
     GET  /v1/staff/handoffs                     escalations waiting for a person (hitl.queues)
+    GET  /v1/staff/feedback?days=30             the portal's thumbs: summary and every rating, with the reply,
+                                                the question before it and the (masked) comment
 
 Each read runs per tenant under that tenant's row-level security, for the tenants in STAFF_TENANTS (the
 tenants table is itself tenant-isolated, so it cannot be listed). Ticket texts stay as stored, PII tokens
@@ -22,12 +24,14 @@ included. Everything is returned whole and filtered in the browser.
 
 import os
 import re
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from hitl.queues import Refused, context
 from hitl.tickets import RAISED, Tickets, number_id
+from improvement import feedback
 from tools import services
 
 TENANTS = tuple(t.strip() for t in os.environ.get("STAFF_TENANTS", "t_us,t_eu").split(",") if t.strip())
@@ -193,5 +197,10 @@ def staff_router(connect, tenants=TENANTS):
     @router.get("/handoffs")
     def handoffs():
         return {"handoffs": each(HANDOFFS)}
+
+    @router.get("/feedback")
+    def ratings(days: int = Query(30, ge=1, le=365)):
+        rows = feedback.ratings(connect, tenants, datetime.now(timezone.utc) - timedelta(days=days))
+        return {"days": days, "summary": feedback.summary(rows), "ratings": rows}
 
     return router

@@ -98,3 +98,27 @@ test("claims are read for display and a malformed token reads as none", () => {
   expect(readClaims("not-a-token")).toBeNull();
   expect(readClaims(null)).toBeNull();
 });
+
+test("a thumb posts to the reply's feedback route and votes come back per turn", async () => {
+  const calls: [string, string, unknown][] = [];
+  const client = new ChatClient({
+    ...quick,
+    fetch: (async (url: string, init: RequestInit) => {
+      calls.push([init.method!, url, init.body && JSON.parse(init.body as string)]);
+      return init.method === "POST" ? json(201, { signal: "down", comment: "kept" }) : json(200, { votes: { t1: "down" } });
+    }) as typeof fetch,
+  });
+  expect(await client.rate("c 1", "t1", "down", "  wrong date ")).toEqual({ signal: "down", comment: "kept" });
+  expect(await client.rate("c 1", "t2", "up")).toBeTruthy();
+  expect(await client.votes("c 1")).toEqual({ t1: "down" });
+  expect(calls).toEqual([
+    ["POST", "/v1/conversations/c%201/turns/t1/feedback", { signal: "down", comment: "wrong date" }],
+    ["POST", "/v1/conversations/c%201/turns/t2/feedback", { signal: "up", comment: null }],
+    ["GET", "/v1/conversations/c%201/feedback", undefined],
+  ]);
+});
+
+test("a second vote on a reply surfaces as a 409", async () => {
+  const client = new ChatClient({ ...quick, fetch: (async () => json(409, { detail: "already rated" })) as typeof fetch });
+  await expect(client.rate("c1", "t1", "up")).rejects.toMatchObject({ status: 409 });
+});

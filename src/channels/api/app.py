@@ -9,6 +9,9 @@
     POST /v1/conversations/{id}/actions/{ACT-n}/confirm   a service action card's button (tools.services)
     GET  /v1/services                                     the Services tab: own servers, apps and activity
     GET  /v1/conversations                                the History list: own conversations, newest first
+    POST /v1/conversations/{id}/turns/{turn_id}/feedback  {"signal": "up"|"down", "comment"}: a reply's thumb,
+                                                          final (409 on a second vote)
+    GET  /v1/conversations/{id}/feedback                  the caller's thumbs: {"votes": {turn_id: signal}}
 
 Sign-in, the orchestrator hand-off and transcript loading are passed to create_app() so later tasks plug in
 without editing this module. Until sign-in exists (M1-02), dev_header_auth trusts X-Tenant-ID / X-User-ID
@@ -28,11 +31,12 @@ from psycopg_pool import ConnectionPool
 
 from channels import sessions
 from channels.api import trace
-from channels.api.envelope import EventType, Principal, TurnAction, TurnRequest
+from channels.api.envelope import EventType, FeedbackRequest, Principal, TurnAction, TurnRequest
 from channels.api.turns import events_after, last_event_id, submit_turn
 from data.events import EventLog, rebuild_from_transcript
 from data.keys.envelope import TENANT_ID
 from hitl.tickets import Tickets, number_id
+from improvement.feedback import AlreadyRated
 from safety.governance.records import DecisionLog
 from tools import services
 
@@ -69,7 +73,8 @@ def sse(event_id, event_type, data):
 
 
 def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator, transcript=None,
-               poll_seconds=0.05, heartbeat_seconds=15.0, stream_seconds=None):
+               poll_seconds=0.05, heartbeat_seconds=15.0, stream_seconds=None, feedback=None):
+    """feedback: an improvement.feedback.Feedback for the thumbs routes (they answer 503 without one)."""
     app = FastAPI(title="Support Agent API")
     pool = ConnectionPool(dsn or database_url(), min_size=2, max_size=64, open=True,
                           kwargs={"autocommit": True})
@@ -203,6 +208,39 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
             raise HTTPException(404, "no trace for this turn yet")
         decision, steps, created_at = row
         return trace.customer_trace(turn_id, decision, steps, created_at, principal.assurance_tier)
+
+    @app.post("/v1/conversations/{conversation_id}/turns/{turn_id}/feedback", status_code=201)
+    async def rate(conversation_id: str, turn_id: str, body: FeedbackRequest, request: Request):
+        principal = authenticate(request)  # with sign-in, this also checks the conversation is the caller's
+        conversation_id = checked(conversation_id)
+        if not SAFE_ID.match(turn_id):
+            raise HTTPException(422, "invalid turn id")
+        if feedback is None:
+            raise HTTPException(503, "feedback is not configured")
+
+        def go():
+            with connect() as conn:
+                said = EventLog(conn).transcript(principal.tenant_id, conversation_id)
+            if not any(m["role"] == "assistant" and m.get("turn_id") == turn_id for m in said):
+                raise HTTPException(404, "no reply with that turn id in this conversation")
+            try:
+                return feedback.thumbs(principal.tenant_id, principal.principal_id, conversation_id, turn_id,
+                                       body.signal == "up", body.comment)
+            except AlreadyRated:
+                raise HTTPException(409, "this reply is already rated") from None
+
+        _, _, dropped = await in_pool(go)
+        given = bool(body.comment and body.comment.strip())
+        return {"signal": body.signal, "comment": "dropped" if dropped else "kept" if given else "none"}
+
+    @app.get("/v1/conversations/{conversation_id}/feedback")
+    async def my_votes(conversation_id: str, request: Request):
+        principal = authenticate(request)
+        conversation_id = checked(conversation_id)
+        if feedback is None:
+            return {"votes": {}}
+        return {"votes": await in_pool(feedback.votes, principal.tenant_id, principal.principal_id,
+                                       conversation_id)}
 
     @app.get("/v1/conversations/{conversation_id}/events")
     async def events(conversation_id: str, request: Request, last_event_id_header: str | None = Header(

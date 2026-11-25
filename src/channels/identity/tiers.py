@@ -20,6 +20,9 @@ SCOPES = {
 AUDIENCES = {
     "public-read-tools": (Tier.T0_ANON, {"kb:read", "status:read"}),
     "status-tools": (Tier.T1_VERIFIED, {"status:read", "tickets:read", "orders:read", "case:update"}),
+    # the customer's own account and invoices, read only: from T1 (the user's choice, 2026-11-22: an
+    # email-code customer reads their own account records); account and money writes stay at T2
+    "account-read-tools": (Tier.T1_VERIFIED, {"tickets:read", "orders:read"}),
     "account-tools": (Tier.T2_SSO, {"tickets:read", "orders:read", "account:write", "billing:write",
                                     "pii:read", "settings:write"}),
 }

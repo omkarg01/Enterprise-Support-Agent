@@ -6,6 +6,9 @@ merge(engine, results, evidence, draft) -> Outcome, exactly one per turn:
 1. claims: each specialist result's typed claims (claims_from: until agents.topology carries the contracts,
    a completed result's findings are a JSON list of claims). A claim is a topic, an optional number with its
    unit, its text and the evidence ids it cites; the role is the result's, never the claim's own say.
+   Newest first (newest()): on one topic, claims citing an older article than another claim are dropped,
+   before any conflict check, so a superseded article never makes a discrepancy. Then, on a topic whose
+   claims differ but all cite one same customer record, only the lead's stand (lead_keeps()).
 2. numbers, in code only: two claims on the same topic with numbers that differ (beyond the unit's
    tolerance), or in different units, go to a person with the values side by side. Jev never judges numbers.
 3. other disagreements: Jev scores, on masked text, how strongly each claim's own cited evidence supports it
@@ -23,7 +26,7 @@ merge(engine, results, evidence, draft) -> Outcome, exactly one per turn:
 import json
 import re
 import string
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -135,11 +138,53 @@ def redirect_of(engine, text):
     return answer.value, round(answer.confidence, 2), answer.value in HOLD and answer.confidence >= HOLD_AT
 
 
-def merge(engine, results, evidence, draft, verified_actions=(), redraft=None):
+def newest(claims, dated):
+    """Per topic, an older article never outvotes a newer one (the user's rule, 2026-11-20): of the claims that
+    cite dated evidence (an article's updated_at), only those citing the latest date stay. Claims citing no
+    dated evidence (tool records) are kept as they are."""
+    def date(claim):
+        return max((dated[e] for e in claim.evidence if dated.get(e)), default=None)
+    latest = {}
+    for claim in claims:
+        if date(claim):
+            latest[claim.topic] = max(latest.get(claim.topic, ""), date(claim))
+    return [claim for claim in claims if date(claim) is None or date(claim) == latest[claim.topic]]
+
+
+def lead_keeps(claims, lead, records):
+    """M1: on a topic whose claims differ but all cite one same customer record, the lead's claims stand: two
+    readings of one record are not a dispute. Returns (claims, the topics settled that way)."""
+    by_topic = {}
+    for claim in claims:
+        by_topic.setdefault(claim.topic, []).append(claim)
+    kept, settled = [], []
+    for topic, group in by_topic.items():
+        differ = len({(c.text, c.value, c.unit) for c in group}) > 1
+        shared = set.intersection(*(set(c.evidence) for c in group)) & set(records)
+        mine = [c for c in group if c.role == lead]
+        if differ and shared and mine:
+            kept += mine
+            settled.append(topic)
+        else:
+            kept += group
+    return kept, settled
+
+
+def merge(engine, results, evidence, draft, verified_actions=(), redraft=None, dated=None, lead=None,
+          records=()):
     """evidence: {evidence id: masked text}; draft(claims) -> the coordinator's reply text; verified_actions:
     executed writes their read-back confirmed (agents.contracts.ExecutedAction); redraft(claims): one more
-    draft when the first points the customer elsewhere (register B25), checked again before it is used."""
-    claims = [claim for result in results for claim in claims_from(result)]
+    draft when the first points the customer elsewhere (register B25), checked again before it is used;
+    dated: {evidence id: its article's updated_at}, so the newest article wins a topic (newest());
+    lead, records: the lead's role and the evidence ids that are customer records (lead_keeps())."""
+    claims = newest([claim for result in results for claim in claims_from(result)], dated or {})
+    claims, settled = lead_keeps(claims, lead, records)
+    outcome = _decide(engine, claims, evidence, draft, verified_actions, redraft)
+    return replace(outcome, detail={**outcome.detail, "lead_kept": settled}) if settled else outcome
+
+
+def _decide(engine, claims, evidence, draft, verified_actions, redraft):
+    """merge() once the claims are in: the conflict checks, the one draft and its redirect check."""
     if not claims:
         return human("NOTHING_TO_SAY")
     numbers = numeric_conflicts(claims)

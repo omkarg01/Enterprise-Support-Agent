@@ -7,7 +7,7 @@ Erased, keyed on (tenant_id, principal_id):
     postgres      the case state of the user's own cases and conversations (the turn loop keys a case by its
                   conversation), the user's support tickets with their history, facts, dialogue turns /
                   summaries / pins, the event log, submitted turns, one-time codes, conversations, the user's
-                  own cases and sessions
+                  own cases and sessions, and the feedback and regression cases on their conversations
     vault         the PII values behind every token found in the user's data
     keys          the user's data keys (crypto-shredding: tool audit payloads and any copy restored from a
                   backup become unreadable)
@@ -64,6 +64,8 @@ POSTGRES = [  # (table, predicate), children before parents; every predicate nam
     ("dialogue_turns", f"tenant_id = %(t)s AND conversation_id IN ({OWN_CONVERSATIONS})"),
     ("outbound_event_log", f"tenant_id = %(t)s AND conversation_id IN ({OWN_CONVERSATIONS})"),
     ("conversation_messages", f"tenant_id = %(t)s AND conversation_id IN ({OWN_CONVERSATIONS})"),
+    ("regression_cases", f"tenant_id = %(t)s AND conversation_id IN ({OWN_CONVERSATIONS})"),
+    ("feedback_events", f"tenant_id = %(t)s AND conversation_id IN ({OWN_CONVERSATIONS})"),
     ("turns", "tenant_id = %(t)s AND principal_id = %(p)s"),
     ("otp_challenges", "tenant_id = %(t)s AND principal_id = %(p)s"),
     ("conversations", "tenant_id = %(t)s AND principal_id = %(p)s"),
@@ -106,7 +108,8 @@ GRANTS = """
 GRANT SELECT, INSERT, UPDATE ON erasure_ledger TO lifecycle_service;
 GRANT SELECT ON decision_records, tool_audit_records TO lifecycle_service;
 GRANT SELECT, DELETE ON user_facts, dialogue_pins, dialogue_summaries, dialogue_turns, outbound_event_log,
-  conversation_messages, turns, otp_challenges, conversations, cases, sessions TO lifecycle_service;
+  conversation_messages, turns, otp_challenges, conversations, cases, sessions, feedback_events,
+  regression_cases TO lifecycle_service;
 """
 
 
@@ -211,7 +214,8 @@ class ErasureActivities:
                 f"SELECT {column} FROM {table} WHERE conversation_id IN ({OWN_CONVERSATIONS})"
                 for table, column in (("dialogue_turns", "content"), ("dialogue_summaries", "summary"),
                                       ("dialogue_pins", "content"), ("outbound_event_log", "data::text"),
-                                      ("conversation_messages", "text"))),
+                                      ("conversation_messages", "text"), ("feedback_events", "comment"),
+                                      ("regression_cases", "question || ' ' || answer"))),
                 args)]
             texts += [r[0] for r in conn.execute(  # ticket texts are masked: their tokens' values go too
                 f"SELECT description FROM support_tickets WHERE tenant_id = %(t)s AND principal_id = %(p)s "

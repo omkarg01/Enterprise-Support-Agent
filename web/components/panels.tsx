@@ -1,15 +1,15 @@
 "use client";
-// Right-hand panels (execution trace, citation) and the inline "why this answer" card. Everything shown is
+// Right-hand panels (execution trace, citation). Everything shown is
 // already filtered by the server for the caller's tier; nothing here hides data client-side.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { Citation } from "@/lib/reduce.ts";
-import type { Agent, Trace, ToolCall, Why } from "@/lib/trace.ts";
+import type { Agent, Trace, ToolCall } from "@/lib/trace.ts";
 import { Icon, type IconName } from "./icons.tsx";
 
 export type Loadable<T> = { state: "loading" } | { state: "error"; message: string } | { state: "ready"; value: T };
 
-const GOOD = new Set(["SUCCESS", "PASS", "MASKED", "NONE FOUND"]);
+const GOOD = new Set(["SUCCESS", "PASS", "MASKED", "NONE FOUND", "SKIPPED"]);
 
 export function Drawer({ title, icon, onClose, children }: {
   title: string; icon?: IconName; onClose: () => void; children: ReactNode;
@@ -151,6 +151,13 @@ export function TraceView({ item, retry }: { item: Loadable<Trace>; retry: () =>
         return (
           <div className="space-y-4">
             <p className="text-sm text-muted">{trace.summary}</p>
+            {(trace.models?.length ?? 0) > 0 && (
+              <p className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm">
+                <Icon name="spark" className="size-4 shrink-0 text-brand" />
+                <span className="text-muted">{trace.models!.length > 1 ? "Models used" : "Model used"}</span>
+                <span className="break-all font-mono text-xs">{trace.models!.join(", ")}</span>
+              </p>
+            )}
             {trace.detail === "summary" && (
               <p className="rounded-lg border border-brand/30 bg-brand-soft px-3 py-2 text-xs text-brand-strong">
                 Sign in with an email code to see each step, its tool calls and the shared state.
@@ -180,7 +187,7 @@ export function TraceView({ item, retry }: { item: Loadable<Trace>; retry: () =>
               </details>
             )}
             <p className="text-xs text-muted">
-              This view describes the steps, never scores or internal settings.
+              This view describes the steps and the models used, never scores or internal settings.
             </p>
           </div>
         );
@@ -224,54 +231,5 @@ export function CitationView({ citation }: { citation: Citation }) {
         </dl>
       )}
     </div>
-  );
-}
-
-// Why this answer ----------------------------------------------------------------------------------------
-
-function Passed({ title, detail }: { title: string; detail: string }) {
-  return (
-    <li className="flex gap-3">
-      <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border-2 border-ok text-ok">
-        <Icon name="check" className="size-3" />
-      </span>
-      <span>
-        <span className="block text-sm font-medium">{title}</span>
-        <span className="block text-xs text-muted">{detail}</span>
-      </span>
-    </li>
-  );
-}
-
-export function WhyPanel({ item, onClose }: { item: Loadable<Why[]>; onClose: () => void }) {
-  return (
-    <section aria-label="Why this answer" className="mt-3 rounded-xl border border-brand/40 bg-surface">
-      <header className="flex items-center justify-between px-4 pt-3">
-        <h3 className="font-semibold">Why this answer?</h3>
-        <button onClick={onClose} aria-label="Hide why this answer" className="rounded p-1 text-muted hover:bg-subtle">
-          <Icon name="chevron" className="size-4 rotate-180" />
-        </button>
-      </header>
-      <div className="px-4 py-3">
-        <Pending item={item}>
-          {(rows) => rows.length === 0 ? <p className="text-sm text-muted">No decision was recorded for this reply.</p> : (
-            <ul className="space-y-3">
-              {rows.flatMap((row, i) => [
-                ...row.checks.map((check) => (
-                  <Passed key={`${i}-${check}`} title={`${check} passed`} detail="Checked before the reply was sent" />
-                )),
-                <Passed key={`${i}-reason`} title={row.reason} detail={row.requires_human_review
-                  ? "A person reviews this decision before it is final" : "Recorded with this reply"} />,
-              ])}
-            </ul>
-          )}
-        </Pending>
-      </div>
-      <footer className="flex gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
-        <Icon name="info" className="size-4 shrink-0" />
-        We don&apos;t show technical scores. Our focus is trust, safety, and source transparency. A person can take
-        over at any time.
-      </footer>
-    </section>
   );
 }

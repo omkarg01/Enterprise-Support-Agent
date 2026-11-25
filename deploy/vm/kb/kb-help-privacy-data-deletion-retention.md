@@ -39,7 +39,7 @@ Because Nimbus Systems does not inspect or query the interior of customer databa
 To permanently erase a former employee's Nimbus Cloud Platform user profile (`<EMAIL_1>`, `<NAME_1>`, `<PHONE_1>`):
 
 1. A **Tenant Owner** verified at Tier T2 removes the user from **Organization Settings > Users & Roles > Delete User**.
-2. To purge the user's personal email and name from historical support tickets and identity logs ahead of standard retention, submit a **Privacy Erasure Request** from the console or via web chat after completing T2 verification.
+2. To purge the user's personal email and name from historical support tickets and identity logs ahead of standard retention, submit a **Privacy Erasure Request** from the console after completing T2 verification.
 3. Nimbus Privacy Operations completes verified user-profile erasure requests within **30 calendar days** and replaces personal identifiers in historical support records with anonymized tokens (`<REDACTED_USER>`), while preserving immutable security audit timestamps.
 
 ## Standard Nimbus Cloud Platform data retention schedules

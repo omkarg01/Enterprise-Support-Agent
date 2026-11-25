@@ -48,7 +48,7 @@ Once a subscription reaches its cancellation effective date (`TERM_EXPIRED_CANCE
 ### Stage 2: Day 8 to Day 30 post-cancellation (Soft-Delete Quarantine)
 
 - Console and API access is locked (`TENANT_QUARANTINED`), and encrypted volume snapshots are held in cold regional quarantine storage inside the tenant's original US or EU residency realm.
-- During this 30-day window, a Tenant Owner can still reactivate the tenant by contacting Nimbus Support (`queue-billing-ops`) and settling a renewal invoice; all Nimbus DB and Nimbus Run state can be restored intact.
+- During this 30-day window, a Tenant Owner can still reactivate the tenant by requesting reactivation (handled by `queue-billing-ops`) and settling a renewal invoice; all Nimbus DB and Nimbus Run state can be restored intact.
 
 ### Stage 3: Day 31 post-cancellation (Permanent Cryptographic Erasure)
 

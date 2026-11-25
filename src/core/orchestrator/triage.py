@@ -17,6 +17,7 @@ from core.orchestrator.decisions import (
     checked,
     mask,
 )
+from schemas.thread_state import episode
 
 SOP_INTENTS = {"BILLING_INQUIRY": "billing_inquiry", "PASSWORD_RESET": "password_reset",
                "SUBSCRIPTION_UPDATE": "subscription_update"}
@@ -92,5 +93,6 @@ def thread_text(messages, limit=8):
 def triage_hook(engine, fallback=None):
     """The statechart's `triage(state)` hook: masks the recent thread and triages it."""
     def hook(state):
-        return triage(engine, {"message": mask(thread_text(state.get("messages")))}, fallback)
+        # the question being worked on, with its clarifying exchange: an earlier, answered one is not it
+        return triage(engine, {"message": mask(thread_text(episode(state.get("messages") or [])))}, fallback)
     return hook

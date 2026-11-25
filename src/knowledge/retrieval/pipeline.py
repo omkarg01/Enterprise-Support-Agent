@@ -70,6 +70,7 @@ class Section:
     provenance: str
     collection: str
     flagged: bool = False      # screening found injected instructions (sanitized)
+    updated_at: str = ""       # the article's, for agents.merge.newest
 
 
 @dataclass
@@ -158,12 +159,17 @@ class Retriever:
         """embed(texts) -> vectors; complete(prompt) -> str for the rewrite and the reranker."""
         self.client, self.embed, self.complete, self.namespace = client, embed, complete, namespace
 
+    def standalone(self, history, latest):
+        """The rewrite alone: the latest message as a standalone Query, resolved from the history."""
+        return rewrite(self.complete, history, latest)
+
     def retrieve(self, tier, tenant_id, history, latest, groups=(), live_check=None, audiences=None,
-                 sources=()):
+                 sources=(), query=None):
         """audiences: limit the passages to these chunk audiences: a customer-facing answer passes
         ("customer_visible",) (KR-D2, register S18); a specialist's co-pilot may read internal ones.
-        sources: source systems also readable at any audience; the caller must not cite those passages."""
-        query = rewrite(self.complete, history, latest)
+        sources: source systems also readable at any audience; the caller must not cite those passages.
+        query: a Query standalone() already made (no second rewrite)."""
+        query = query or rewrite(self.complete, history, latest)
         dense = self.embed([query.text])[0]
         keywords = sparse(" ".join([query.text, *query.identifiers, *query.identifiers]))
         restrict = access_filter(groups, include_restricted=live_check is not None, audiences=audiences,
@@ -192,7 +198,7 @@ class Retriever:
             text, flagged = screen(payload["parent_text"])
             candidates.append(Section(payload["parent_id"], payload["doc_id"], payload["title"],
                                       payload["heading"], text, payload["audience"], payload["source_kind"],
-                                      payload["provenance"], name, flagged))
+                                      payload["provenance"], name, flagged, payload.get("updated_at") or ""))
             if len(candidates) == CANDIDATES:
                 break
 

@@ -1,7 +1,7 @@
 # Support portal (web)
 
 Next.js 15 (App Router) customer portal: chat over the resumable event stream, anonymous / one-time-code
-sign-in, citation drawer, the "why this answer" view and the tier-filtered "how this was answered" trace.
+sign-in, citation drawer and the tier-filtered "how this was answered" trace.
 Mockups: `docs/design/mockups/`.
 
 ```sh
