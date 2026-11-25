@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aiven": {
+      "type": "http",
+      "url": "https://mcp.aiven.live/mcp?services_scope=pg&read_only=true"
+    }
+  }
+}

@@ -9,7 +9,7 @@
     "non_goals": [],
     "trust_boundary": "local repository",
     "created_at": "2026-10-09T16:13:56.964Z",
-    "updated_at": "2026-11-22T08:58:40.932Z"
+    "updated_at": "2026-11-25T19:20:51.460Z"
   },
   "policy": {
     "ponytail": "full",
@@ -23,11 +23,11 @@
     }
   },
   "lifecycle": {
-    "phase": "verify",
-    "status": "ready",
+    "phase": "planning",
+    "status": "active",
     "active_task": null,
     "blocker": null,
-    "next_action": "Review completed work and choose the next bounded outcome."
+    "next_action": "Finish defining requirement-linked tasks, then run genesis plan check."
   },
   "commands": {},
   "workflow": {
@@ -138,16 +138,8 @@
         "NFR-9"
       ]
     },
-    "plan_check": {
-      "at": "2026-11-16T17:22:40.992Z",
-      "source_hash": "63d38b37230f130f0bcff36a9ef0ff9533f46cc2e64a422174037da692d97ab5"
-    },
-    "plan_approval": {
-      "human": "Intelligent_developer_123",
-      "reason": "Approved TK-01..TK-05: support tickets (DECISION-368069f5)",
-      "at": "2026-11-16T17:23:15.606Z",
-      "source_hash": "63d38b37230f130f0bcff36a9ef0ff9533f46cc2e64a422174037da692d97ab5"
-    }
+    "plan_check": null,
+    "plan_approval": null
   },
   "artifacts": [
     {
@@ -287,7 +279,16 @@
       "supersedes": "ASSUMPTION-9db6ab86"
     }
   ],
-  "invariants": [],
+  "invariants": [
+    {
+      "id": "INVARIANT-fe98c4e2",
+      "text": "All automated testing runs locally only: the local compose Postgres (127.0.0.1) or a throwaway local container. Never run tests, load tests, seeds or experiments against the VM, the live API or the managed database (Aiven/Neon); keep DATABASE_URL and APP_DATABASE_URL empty in the local .env. The user tests production by hand; the VM is touched only when the user asks for a specific action.",
+      "source": "user, chat 2026-11-26; CLAUDE.md 'Testing happens locally only'",
+      "recorded_at": "2026-11-25T18:38:21.714Z",
+      "paths": [],
+      "tags": []
+    }
+  ],
   "decisions": [
     {
       "id": "DECISION-fd1fbf4d",
@@ -43400,6 +43401,54 @@
         "web/tsconfig.json": "4846311a6611fa71488a31dc2071dd1e25a55ae86bcaf5664f8c05f51c644910",
         "web/vitest.config.ts": "e79c2cf339c9c2a88978bcb66348addb2b1c71858e53b6e18109e26a09c79ba4"
       }
+    },
+    {
+      "id": "AIVEN-01",
+      "outcome": "App runs on Aiven free Postgres: <=12 connections per API process (shared pool), streams use LISTEN/NOTIFY not 0.5s polling, TLS via sslmode, startup retry, provider-neutral migrations, table-size report, staff API requires OTP sign-in + STAFF_EMAILS, docs/aiven.md",
+      "state": "queued",
+      "risk": "medium",
+      "owner": null,
+      "scope": [],
+      "dependencies": [],
+      "requirements": [
+        "NFR-36"
+      ],
+      "inputs": [],
+      "environment": [],
+      "scenarios": [],
+      "gates": [
+        {
+          "id": "tests",
+          "kind": "command",
+          "command": ".venv/Scripts/python -m pytest -q -p no:cacheprovider --ignore=tests/load",
+          "mandatory": true,
+          "status": "pending",
+          "evidence": null
+        },
+        {
+          "id": "budget",
+          "kind": "command",
+          "command": ".venv/Scripts/python -m pytest -q -p no:cacheprovider tests/load/test_connection_budget.py",
+          "mandatory": true,
+          "status": "pending",
+          "evidence": null
+        },
+        {
+          "id": "independent-review",
+          "kind": "review",
+          "command": "",
+          "mandatory": true,
+          "status": "pending",
+          "evidence": null
+        }
+      ],
+      "next_action": "Run the task pre-flight.",
+      "blocker": null,
+      "notes": [],
+      "failures": [],
+      "limitations": [],
+      "created_at": "2026-11-25T17:58:47.699Z",
+      "updated_at": "2026-11-25T17:58:47.701Z"
     }
   ],
   "learning_proposals": [],
@@ -49174,14 +49223,14 @@
     }
   },
   "checkpoint": {
-    "at": "2026-11-22T08:58:40.245Z",
+    "at": "2026-11-25T19:20:49.515Z",
     "revision": {
-      "commit": "2a8bb8dcbad9b3613a8473306fc008ef13364c0e",
+      "commit": "037a6e6b06800f342fb0154536a4d634ad20aad3",
       "dirty": true,
-      "source_hash": "0e32c9097f8a1da8b9d94f7535a6ad67065e5bbcb2e19a6cff05bfc7d447411f"
+      "source_hash": "79d3c6918cb72b44e7cee4c3936539d5ae6b48d9ad455cae0e6033610f67cea9"
     },
     "active_task": null,
-    "next_action": "Review completed work and choose the next bounded outcome."
+    "next_action": "Finish defining requirement-linked tasks, then run genesis plan check."
   },
   "legacy": null
 }
