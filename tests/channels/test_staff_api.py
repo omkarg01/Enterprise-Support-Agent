@@ -1,6 +1,7 @@
 """The demo staff console's API (channels.api.staff, outside Genesis): every tenant's tickets, customers and
 services in one place, tickets moved along the allowed steps, refunds credited, staff-only notes kept from the
-customer, and staff service actions under the same rules as the customer's own."""
+customer, and staff service actions under the same rules as the customer's own. Every route needs a staff
+sign-in: a one-time-code session whose email is on the staff list."""
 
 import subprocess
 from pathlib import Path
@@ -12,6 +13,8 @@ from fastapi.testclient import TestClient
 
 from channels import sessions
 from channels.api.staff import staff_router
+from channels.identity import otp
+from channels.identity.service import Identity
 from data.migrate import migrate, psql
 from hitl import queues, tickets
 from hitl.tickets import Tickets
@@ -21,6 +24,7 @@ from tools.validation import approvals
 ROOT = Path(__file__).resolve().parents[2]
 DB = "test_staff_api"
 DSN = f"postgresql://agent:change-me@127.0.0.1:5432/{DB}"  # credentials from .env.example
+LEAD = "lead@nimbus.example"
 REFUND = {"category": "refund", "subject": "Charged twice", "queue": "queue_billing",
           "reason": "refund request",
           "invoice_id": "inv-sarah-1", "amount_cents": 50000, "currency": "USD"}
@@ -37,7 +41,7 @@ def client():
     psql("postgres", f'DROP DATABASE IF EXISTS "{DB}" WITH (FORCE)')
     psql("postgres", f'CREATE DATABASE "{DB}"')
     migrate("main", DB)
-    for module in (sessions, approvals, queues, tickets, nimbus, services):
+    for module in (sessions, otp, approvals, queues, tickets, nimbus, services):
         module.apply_schema(DB)
     psql(DB, "INSERT INTO tenants (id, name, region) VALUES ('t_us', 'Acme', 'US'), ('t_eu', 'Globex', 'EU')")
     for tenant, principal in (("t_us", "sarah"), ("t_eu", "greta")):
@@ -53,9 +57,38 @@ def client():
         conn.execute("SET LOCAL ROLE app_runtime")
         conn.execute("SELECT set_config('app.current_tenant_id', 't_us', true)")
         sessions.start(conn, "t_us", "sarah", "T1_VERIFIED")
+    identity, codes = Identity(connect, send_otp=lambda tenant, user, code: codes.append(code)), []
     app = FastAPI()
-    app.include_router(staff_router(connect, tenants=("t_us", "t_eu")))
-    return TestClient(app)
+    app.include_router(staff_router(connect, identity.authenticate, tenants=("t_us", "t_eu"),
+                                    staff=frozenset({LEAD})))
+    app.state.identity, app.state.codes = identity, codes
+    return TestClient(app, headers={"Authorization": f"Bearer {signed_in(app, LEAD.upper())}"})
+
+
+def signed_in(app, email):
+    """An access token from the one-time code sign-in, as the staff console gets one."""
+    identity, codes = app.state.identity, app.state.codes
+    challenge = identity.start_otp("t_us", email)
+    return identity.verify_otp("t_us", challenge, codes[-1])
+
+
+def test_only_a_signed_in_email_on_the_staff_list_gets_in(client):
+    app = client.app
+    for headers, status in (({"Authorization": ""}, 401), ({"Authorization": "Bearer nonsense"}, 401),
+                            ({"Authorization": f"Bearer {app.state.identity.anonymous('t_us')}"}, 403),
+                            ({"Authorization": f"Bearer {signed_in(app, 'sarah')}"}, 403)):
+        for path in ("/v1/staff/tickets", "/v1/staff/overview", "/v1/staff/customers"):
+            assert client.get(path, headers=headers).status_code == status, (headers, path)
+        assert client.post("/v1/staff/tickets/TKT-00001/status", json={"status": "closed"},
+                           headers=headers).status_code == status
+    assert client.get("/v1/staff/tickets").status_code == 200      # the lead, any letter case
+
+
+def test_the_overview_is_tickets_services_and_activity_in_one_call(client):
+    page = client.get("/v1/staff/overview").json()
+    assert page["tickets"] == client.get("/v1/staff/tickets").json()["tickets"]
+    assert page["services"] == client.get("/v1/staff/services").json()["services"]
+    assert page["activity"] == client.get("/v1/staff/activity").json()["activity"]
 
 
 def number(client, subject):

@@ -7,7 +7,7 @@ import { actorLabel, customerHref, didWhat, serviceHealth, staffApi, summary, ti
 import { activityLabel, ago } from "@/lib/services.ts";
 import { Empty, Loading, PageTitle, category, panel, queue, td, th, useLoad, when } from "./ui.tsx";
 
-const POLL_MS = 15_000;  // only while the tab is visible (useLoad)
+const POLL_MS = 30_000;  // one /overview call, only while the tab is visible (useLoad)
 
 function Tile({ label, value, sub, href }: { label: string; value: string | number; sub?: string; href?: string }) {
   const body = (
@@ -45,15 +45,14 @@ function Bars({ title, rows, show }: { title: string; rows: [string, number][]; 
 }
 
 export function OverviewView() {
-  const tickets = useLoad("tickets", staffApi.tickets, POLL_MS);
-  const services = useLoad("services", staffApi.services, POLL_MS);
-  const activity = useLoad("activity", staffApi.activity, POLL_MS);
-  if (!tickets.data) return <><PageTitle title="Overview" /><Loading error={tickets.error} /></>;
-  const s = summary(tickets.data);
-  const health = serviceHealth(services.data ?? []);
+  const overview = useLoad("overview", staffApi.overview, POLL_MS);
+  if (!overview.data) return <><PageTitle title="Overview" /><Loading error={overview.error} /></>;
+  const { tickets, services, activity } = overview.data;
+  const s = summary(tickets);
+  const health = serviceHealth(services);
   return (
     <>
-      <PageTitle title="Overview" sub="Every tenant · refreshes every 15 s while this tab is open" />
+      <PageTitle title="Overview" sub="Every tenant · refreshes every 30 s while this tab is open" />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Tile label="Open" value={s.open} href="/staffs/tickets" />
         <Tile label="In review" value={s.inReview} href="/staffs/tickets" />
@@ -82,9 +81,9 @@ export function OverviewView() {
         </section>
       </div>
       <h2 className="mb-2 mt-6 text-sm font-semibold">Recent activity</h2>
-      {!activity.data?.length ? <Empty title="Nothing has happened yet" /> : (
+      {!activity.length ? <Empty title="Nothing has happened yet" /> : (
         <ol className={`${panel} divide-y divide-slate-100 dark:divide-slate-800`}>
-          {activity.data.slice(0, 15).map((a, i) => (
+          {activity.slice(0, 15).map((a, i) => (
             <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-4 py-2.5 text-sm">
               <span className="w-20 shrink-0 text-xs text-slate-500" title={when(a.at)}>{ago(a.at)}</span>
               {a.type === "ticket" ? (

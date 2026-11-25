@@ -30,7 +30,6 @@ import json
 import tarfile
 from datetime import datetime, timedelta, timezone
 
-import psycopg
 from temporalio import activity
 from temporalio.api.common.v1 import WorkflowExecution
 from temporalio.api.workflowservice.v1 import DeleteWorkflowExecutionRequest, DescribeWorkflowExecutionRequest
@@ -48,6 +47,7 @@ from data.erasure import (
 )
 from data.keys import KeyShredded, decrypt_field
 from data.migrate import psql
+from data.pool import pool
 from safety.pii.tokens import TOKEN, find
 
 STORES = ["temporal", "postgres", "vault", "keys"]
@@ -177,7 +177,7 @@ class ErasureActivities:
         self.signing_key, self.namespace = signing_key, namespace
 
     def _main(self):
-        return psycopg.connect(self.main_dsn, autocommit=True)
+        return pool(self.main_dsn, "erasure").connection()  # this worker's own, at most 2
 
     @activity.defn(name="erasure_stores")
     async def stores(self) -> list[str]:
@@ -281,7 +281,7 @@ class ErasureActivities:
                        for table, where in POSTGRES)
 
     def _vault(self):
-        return psycopg.connect(self.vault_dsn, autocommit=True)
+        return pool(self.vault_dsn, "erasure").connection()
 
     def _purge_vault(self, request, plan):
         with self._vault() as conn, conn.transaction():

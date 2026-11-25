@@ -1,17 +1,17 @@
 # Learning deployment profile (SPEC.md NFR-36): the backbone runs on one Oracle Cloud Always Free ARM VM.
 # Every image is pinned and has an arm64 build. Ports bind to localhost only; app services join in later tasks.
-# Free managed services (Neon/Supabase, Qdrant Cloud, R2, Upstash, Langfuse) replace local ones via .env.
+# Free managed services (Aiven/Neon/Supabase Postgres, Qdrant Cloud, R2, Upstash, Langfuse) replace local ones via .env.
 name: support-agent
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine   # the major version Aiven runs (docs/aiven.md)
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agent}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-agent}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata18:/var/lib/postgresql   # 18 keeps its data in a versioned folder under here
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent}"]
       interval: 10s
@@ -67,7 +67,7 @@ services:
       - "127.0.0.1:11434:11434"
 
 volumes:
-  pgdata:
+  pgdata18:
   temporalhome:
   qdrantdata:
   ollamadata:

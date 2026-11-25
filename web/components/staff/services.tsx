@@ -11,7 +11,7 @@ import {
 import { kindLabel, statusLabel } from "@/lib/services.ts";
 import { Button, Empty, Loading, PageTitle, Problem, Search, Select, ServiceState, input, panel, td, th, useLoad } from "./ui.tsx";
 
-const POLL_MS = 10_000;  // only while the tab is visible (useLoad)
+const POLL_MS = 30_000;  // only while the tab is visible (useLoad)
 const LABELS = { stop: "Stop", start: "Start", restart: "Restart", scale: "Scale" } as const;
 
 function Actions({ service, onDone }: { service: StaffService; onDone: (problem: string | null) => void }) {

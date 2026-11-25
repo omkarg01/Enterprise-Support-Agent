@@ -1,8 +1,11 @@
 """The demo staff console's API (/v1/staff/*; built outside Genesis, like the portal and the Services tab).
 
-There is NO sign-in: anyone who can reach the API reads every customer's email, tickets and services and can
-move tickets, credit invoices and act on services (register S20). It exists to show how a staff side feels;
-the real one needs SSO and the staff directory (hitl.approval.verify_staff) before it holds real customers.
+Every route needs a signed-in session (the one-time email code, tier T1 or above; channels.identity) whose
+email is in STAFF_EMAILS (comma-separated, case-insensitive); anyone else gets 401 or 403, and with
+STAFF_EMAILS empty nobody gets in. Closes register S20's open door; a real one would use SSO and the staff
+directory (hitl.approval.verify_staff), and record which staff member acted (every action is "staff:demo").
+
+    GET  /v1/staff/overview                    tickets, services and activity in one call (the Overview page)
 
     GET  /v1/staff/tickets                     every raised ticket, newest first (the console filters)
     GET  /v1/staff/tickets/{TKT-n}              one ticket with its whole history, staff-only notes included
@@ -26,7 +29,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from hitl.queues import Refused, context
@@ -35,6 +38,7 @@ from improvement import feedback
 from tools import services
 
 TENANTS = tuple(t.strip() for t in os.environ.get("STAFF_TENANTS", "t_us,t_eu").split(",") if t.strip())
+STAFF = frozenset(e.strip().lower() for e in os.environ.get("STAFF_EMAILS", "").split(",") if e.strip())
 ACTOR = "staff:demo"
 TICKET = re.compile(r"^TKT-[0-9]{5,}$")
 SAFE = re.compile(r"^[A-Za-z0-9_.@:+-]{1,128}$")
@@ -105,8 +109,15 @@ WHERE tenant_id = %(t)s AND status IN ('waiting', 'claimed') ORDER BY acuity DES
 """
 
 
-def staff_router(connect, tenants=TENANTS):
-    router = APIRouter(prefix="/v1/staff")
+def staff_router(connect, authenticate, tenants=TENANTS, staff=STAFF):
+    """authenticate(request) -> Principal: channels.identity.service.Identity.authenticate (it raises 401)."""
+    def staff_only(request: Request):
+        principal = authenticate(request)
+        if principal.assurance_tier == "T0_ANON" or principal.principal_id.lower() not in staff:
+            raise HTTPException(403, "staff only")
+
+    # a sync dependency: FastAPI runs it on its thread pool, off the event loop
+    router = APIRouter(prefix="/v1/staff", dependencies=[Depends(staff_only)])
     tickets = Tickets(connect)
 
     def each(sql):
@@ -153,7 +164,8 @@ def staff_router(connect, tenants=TENANTS):
 
     @router.get("/customers")
     def customers():
-        return {"customers": each(CUSTOMERS)}
+        """Staff sign in like customers do, so their own sessions are left out of the list."""
+        return {"customers": [c for c in each(CUSTOMERS) if c["principal_id"].lower() not in staff]}
 
     @router.get("/customers/{tenant}/{email}")
     def customer(tenant: str, email: str):
@@ -193,6 +205,11 @@ def staff_router(connect, tenants=TENANTS):
         service_events = [{**a, "tenant_id": tenant, "type": "service"} for tenant in tenants
                           for a in services.activity(connect, tenant, limit=40)]
         return {"activity": sorted(ticket_events + service_events, key=lambda e: e["at"], reverse=True)[:60]}
+
+    @router.get("/overview")
+    def overview():
+        """The Overview page's three lists in one call: one request every 30 s instead of three."""
+        return {**all_tickets(), **all_services(), **activity()}
 
     @router.get("/handoffs")
     def handoffs():

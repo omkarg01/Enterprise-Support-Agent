@@ -15,9 +15,15 @@ The tables' SQL lives here (module-owned schema, DECISION-d4b79fe1) and is appli
 """
 
 import json
+import logging
+import threading
+import time
+
+import psycopg
 
 from data.migrate import psql
 
+log = logging.getLogger(__name__)
 CHANNEL = "conversation_events"  # LISTEN / NOTIFY so an open stream does not wait out a poll (B14)
 SCHEMA_NAME = "events_0001_outbound_event_log.sql"
 SCHEMA = """
@@ -156,4 +162,71 @@ class EventLog:
 def rebuild_from_transcript(messages):
     """Events for a client whose Last-Event-ID is past the window: an expiry marker, then the transcript."""
     return [(None, "stream_expired", {}), *((None, "message", message) for message in messages)]
+
+
+class Listener:
+    """One LISTEN connection per process (outside the pools, counted in data.pool's budget) that wakes the
+    open streams of a conversation when append() notifies. The payload is the conversation id, far under
+    pg_notify's 8000-byte limit; a woken stream reads the new rows itself. Started by the first subscribe();
+    a dropped connection is reopened after 1 s, doubling to 30 s, and then every stream is woken once, since
+    notifications sent meanwhile are lost. TCP keepalives notice a server that vanished without closing."""
+
+    def __init__(self, dsn, connect=psycopg.connect):
+        self.dsn, self.connect = dsn, connect
+        self.waiters: dict = {}   # conversation id -> {asyncio.Event: its event loop}
+        self.lock, self.thread = threading.Lock(), None
+
+    def subscribe(self, conversation_id, event, loop):
+        with self.lock:
+            self.waiters.setdefault(conversation_id, {})[event] = loop
+            if self.thread is None:
+                self.thread = threading.Thread(target=self._run, name="pg-listen", daemon=True)
+                self.thread.start()
+
+    def unsubscribe(self, conversation_id, event):
+        with self.lock:
+            waiting = self.waiters.get(conversation_id, {})
+            waiting.pop(event, None)
+            if not waiting:
+                self.waiters.pop(conversation_id, None)
+
+    def wake(self, conversation_id=None):
+        """Set the events of one conversation's streams, or of every stream."""
+        with self.lock:
+            groups = (self.waiters.values() if conversation_id is None
+                      else [self.waiters.get(conversation_id, {})])
+            targets = [item for group in groups for item in group.items()]
+        for event, loop in targets:
+            try:
+                loop.call_soon_threadsafe(event.set)
+            except RuntimeError:  # that stream's loop has closed
+                pass
+
+    def _run(self):
+        delay = 1.0
+        while True:
+            try:
+                with self.connect(self.dsn, autocommit=True, keepalives=1, keepalives_idle=60,
+                                  keepalives_interval=10, keepalives_count=3) as conn:
+                    conn.execute(f"LISTEN {CHANNEL}")
+                    delay = 1.0
+                    self.wake()
+                    for note in conn.notifies():
+                        self.wake(note.payload)
+            except psycopg.Error as error:
+                log.warning("LISTEN %s dropped, reconnecting in %.0f s: %s", CHANNEL, delay, error)
+            time.sleep(delay)
+            delay = min(delay * 2, 30.0)
+
+
+_listeners: dict = {}
+_listeners_lock = threading.Lock()
+
+
+def listener(dsn):
+    """The process's Listener for dsn."""
+    with _listeners_lock:
+        if dsn not in _listeners:
+            _listeners[dsn] = Listener(dsn)
+        return _listeners[dsn]
 

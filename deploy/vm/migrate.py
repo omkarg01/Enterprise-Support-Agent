@@ -1,8 +1,10 @@
 """Every migration on the deployed databases: `python deploy/vm/migrate.py` in the app image (AC-15).
 
-DATABASE_URL names the main database. psql connects to its direct endpoint (Neon's "-pooler" host is a
-transaction pooler: migrations go around it). The vault and key-store databases sit next to the main one
-(VAULT_DATABASE / KEYS_DATABASE, default agent_vault / agent_keys).
+DATABASE_URL names the main database (any Postgres: Aiven, Neon, a local one). psql connects to the direct
+endpoint: a Neon "-pooler" host is a transaction pooler, so its suffix is dropped; any other host is used as
+given. TLS follows the URL's sslmode (require by default off loopback) and sslrootcert. The first connection
+is retried for 30 s (data.pool.wait_for), so a powered-off server gets to start. The vault and key-store
+databases sit next to the main one (VAULT_DATABASE / KEYS_DATABASE, default agent_vault / agent_keys).
 
 1. the application roles (app_owner, app_runtime, legal_archive, vault_service, key_service) exist and the
    connecting user is a member, so it can hand tables to app_owner;
@@ -13,6 +15,7 @@ transaction pooler: migrations go around it). The vault and key-store databases 
    round that applies nothing stops with the errors.
 
 Migrations only expand (tests/contracts/test_policy_lints.py), so the running release keeps working.
+`--bootstrap-only` stops after steps 1 and 2 (roles and databases, no tables): the target of a pg_restore.
 """
 
 import importlib
@@ -57,14 +60,18 @@ def ensure_app_login(psql, database, password):
 
 
 def psql_environment(url):
-    """(main database, PG* variables) for psql from DATABASE_URL, on the direct (not pooled) host."""
+    """(main database, PG* variables) for psql from DATABASE_URL, on the direct (not pooled) host. Only a
+    Neon pooled host carries "-pooler"; for every other provider the replace is a no-op."""
     parts = urlparse(url)
     if parts.scheme not in ("postgresql", "postgres"):
         raise SystemExit(f"DATABASE_URL must be a postgresql:// URL, not {parts.scheme}://")
     host = (parts.hostname or "").replace("-pooler", "", 1)
-    sslmode = parse_qs(parts.query).get("sslmode", ["prefer" if host == "127.0.0.1" else "require"])[0]
+    query = parse_qs(parts.query)
+    sslmode = query.get("sslmode", ["prefer" if host in ("127.0.0.1", "localhost") else "require"])[0]
     env = {"PGHOST": host, "PGPORT": str(parts.port or 5432), "PGUSER": unquote(parts.username or ""),
            "PGPASSWORD": unquote(parts.password or ""), "PGSSLMODE": sslmode}
+    if "sslrootcert" in query:  # the provider's CA, for sslmode=verify-full (Aiven: the project's ca.pem)
+        env["PGSSLROOTCERT"] = query["sslrootcert"][0]
     return (parts.path or "/").lstrip("/") or "postgres", env
 
 
@@ -106,6 +113,9 @@ def main():
     os.environ.update(env)
     os.environ.setdefault("PSQL", "psql")
     from data import migrate
+    from data.pool import wait_for
+
+    wait_for(os.environ["DATABASE_URL"])
 
     vault = os.environ.get("VAULT_DATABASE", "agent_vault")
     keys = os.environ.get("KEYS_DATABASE", "agent_keys")
@@ -114,6 +124,8 @@ def main():
     for database in (vault, keys):
         migrate.ensure_database(database, maintenance_db=main_db)
         migrate.psql(database, BOOTSTRAP)
+    if "--bootstrap-only" in sys.argv[1:]:
+        return
     migrate.migrate_all((main_db, vault, keys))       # prints each migration it applies
     modules = [importlib.import_module(name) for name in module_schemas()]
     rounds = apply_in_rounds(modules, main_db, migrate.PsqlError)

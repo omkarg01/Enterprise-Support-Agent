@@ -1,4 +1,5 @@
-﻿"""Apply migrations to Neon using DATABASE_URL from .env and psql in the compose Postgres container."""
+"""Apply migrations to the managed Postgres in DATABASE_URL (Aiven, Neon) from a laptop, with psql in the
+compose Postgres container. A partial copy: on the VM, deploy/vm/migrate.py is the one to run."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 
-NEON_ROLE_BOOTSTRAP = """
+ROLE_BOOTSTRAP = """
 GRANT USAGE, CREATE ON SCHEMA public TO CURRENT_USER;
 GRANT USAGE, CREATE ON SCHEMA public TO app_owner;
 DO $$
@@ -38,10 +39,9 @@ def configure_psql_from_database_url() -> str:
     url = urlparse(os.environ["DATABASE_URL"])
     if url.scheme not in ("postgresql", "postgres"):
         raise SystemExit(f"unsupported DATABASE_URL scheme: {url.scheme}")
-    main_db = (url.path or "/").lstrip("/") or "neondb"
+    main_db = (url.path or "/").lstrip("/") or "postgres"
     host = url.hostname or ""
-    if "-pooler" in host:
-        host = host.replace("-pooler", "", 1)
+    host = host.replace("-pooler", "", 1)  # Neon's pooled host; a no-op for every other provider
     os.environ["PGHOST"] = host
     os.environ["PGPORT"] = str(url.port or 5432)
     os.environ["PGUSER"] = unquote(url.username or "")
@@ -70,11 +70,11 @@ def main() -> int:
     from channels.identity import otp
     from data import events, migrate
 
-    print(f"Migrating main={main_db}, vault={vault_db}, keys={keys_db} on Neon (direct host) …")
-    migrate.psql(main_db, NEON_ROLE_BOOTSTRAP)
+    print(f"Migrating main={main_db}, vault={vault_db}, keys={keys_db} on {os.environ['PGHOST']} …")
+    migrate.psql(main_db, ROLE_BOOTSTRAP)
     for database in (vault_db, keys_db):
         migrate.ensure_database(database, maintenance_db=main_db)
-        migrate.psql(database, NEON_ROLE_BOOTSTRAP)
+        migrate.psql(database, ROLE_BOOTSTRAP)
     migrate.migrate_all((main_db, vault_db, keys_db))
     for module in (events, turns, sessions, otp):
         module.apply_schema(main_db)

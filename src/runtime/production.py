@@ -10,8 +10,9 @@ that runs it: used by deploy/vm/serve.py on the VM and by `python -m runtime ser
   the small model. Screening: Llama Guard on Ollama plus the injection patterns (an unavailable scorer gives
   the review band: reads only; a Llama Guard block on a customer message gets Jev's second opinion). PII
   tokens with PII_TOKEN_KEY (environment, then OpenBao). Everything uses APP_DATABASE_URL (app_login, no
-  BYPASSRLS) when set; the statechart's case state store, saved after every stage, goes through a small
-  checked pool on it (its role and tenant settings are transaction-local, so Neon's pooler is fine).
+  BYPASSRLS) when set, through data.pool's process-wide pools (11 connections at most, for Aiven free's 20);
+  the statechart's case state store, saved after every stage, has its own small one. Role and tenant
+  settings are transaction-local, so a transaction pooler in front would be fine too.
 - Tools: the specialists' read-only tools.nimbus catalog through tools.execution.Executor, audited (S11),
   with on-behalf-of tokens from the customer's live session (AGENT-02).
 - Thumbs on replies (improvement.feedback): comments masked with the turn loop's tokenizer and triaged by Jev
@@ -24,11 +25,11 @@ that runs it: used by deploy/vm/serve.py on the VM and by `python -m runtime ser
 import json
 import os
 import smtplib
+import time
 from email.message import EmailMessage
 from pathlib import Path
 
 import httpx
-from psycopg_pool import ConnectionPool
 from qdrant_client import QdrantClient
 
 from channels.api.app import database_url
@@ -39,6 +40,7 @@ from core.orchestrator.case_state import PostgresStore
 from core.orchestrator.decisions import DecisionEngine, JevClient
 from core.secrets import load_secret
 from cost.router import Router
+from data import pool as pools
 from improvement.feedback import Feedback
 from knowledge.retrieval.pipeline import Retriever
 from reliability.fallbacks import (
@@ -116,12 +118,10 @@ def qdrant_url(environ):
     return url
 
 
-def store(dsn, max_size=4):
-    """The statechart's case state store for a long-lived process: a small pool that checks each connection
-    before use (Neon closes idle connections when its compute suspends), shared by the worker threads."""
-    pool = ConnectionPool(dsn, min_size=1, max_size=max_size, check=ConnectionPool.check_connection,
-                          open=True, kwargs={"autocommit": True, "prepare_threshold": 0})
-    return PostgresStore(pool.connection)
+def store(dsn):
+    """The statechart's case state store, on the process's small "store" pool (data.pool), shared by the
+    worker threads."""
+    return PostgresStore(pools.pool(dsn, "store").connection)
 
 
 def services(environ, store, lock=None):
@@ -194,6 +194,7 @@ def app(environ=os.environ):
     if environ.get("SUPPORT_AGENT_DEV_AUTH") == "1":
         raise SystemExit("refusing to serve with SUPPORT_AGENT_DEV_AUTH=1: anyone could sign in with a "
                          "header")
+    pools.wait_for(database_url())  # a powered-off or restarting database gets 30 s to come back
     turn_services = services(environ, store(database_url()))
     loop = TurnLoop(turn_services)
     connect = connector(database_url())
@@ -201,19 +202,23 @@ def app(environ=os.environ):
     feedback = Feedback(connect, turn_services.tokens, Remasked(turn_services.engine),
                         lambda tenant, event: print(f"[feedback: critical] {tenant}: {event}", flush=True))
     dispatch = TemporalDispatcher(environ.get("TEMPORAL_ADDRESS", "127.0.0.1:7233"), loop)
-    # Neon's free compute only scales to zero after 5 idle minutes, so nothing may query it on a timer: each
-    # stream polls every 0.5 s and ends after 5 min (a visible portal tab reconnects with Last-Event-ID, a
-    # hidden one waits until it is shown).
-    api = build_app(None, Identity(connect, idp=None, send_otp=code_sender(environ)), dispatch=dispatch,
-                    poll_seconds=0.5, stream_seconds=300.0, feedback=feedback)
+    # A stream is woken by LISTEN/NOTIFY (data.events.Listener) and reads the log every 10 s only as a
+    # fallback; it ends after 5 min (a visible portal tab reconnects with Last-Event-ID, a hidden one waits).
+    identity = Identity(connect, idp=None, send_otp=code_sender(environ))
+    api = build_app(None, identity, dispatch=dispatch, poll_seconds=10.0, stream_seconds=300.0,
+                    feedback=feedback)
     api.state.turn_loop = loop
-    api.include_router(staff_router(connect))  # the demo staff console: NO sign-in (register S20)
+    api.include_router(staff_router(connect, identity.authenticate))  # OTP sign-in + STAFF_EMAILS
+    checked = {"at": float("-inf")}
 
     @api.get("/healthz")
     def healthz():
-        """The rollout's check (release.py): the database answers."""
-        with connect() as conn:
-            conn.execute("SELECT 1")
+        """The rollout's check (release.py): the database answers. A success is reused for 30 s, so a
+        monitor polling this does not query the database on every call; a failure is never cached."""
+        if time.monotonic() - checked["at"] > 30:
+            with connect() as conn:
+                conn.execute("SELECT 1")
+            checked["at"] = time.monotonic()
         return {"status": "ok", "revision": environ.get("APP_REVISION", "unknown")}
 
     @api.get("/livez")

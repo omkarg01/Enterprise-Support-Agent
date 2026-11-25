@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 sed -i 's/\r$//' .env 2>/dev/null || true
-# Bash `source .env` breaks on `&` in DATABASE_URL query strings; load like scripts/check_neon_roles.py.
+# Bash `source .env` breaks on `&` in DATABASE_URL query strings; load like scripts/check_db_roles.py.
 eval "$("$ROOT/.venv/bin/python" - <<'PY'
 import shlex
 from pathlib import Path

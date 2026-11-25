@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # Pinned images whose registry manifests list an arm64 build (checked with `docker manifest inspect`).
 ARM64_IMAGES = {
-    "postgres:16-alpine",
+    "postgres:18-alpine",
     "temporalio/temporal:1.9.1",
     "qdrant/qdrant:v1.12.4",
     "jaegertracing/all-in-one:1.62.0",
@@ -22,6 +22,8 @@ ALLOWED_ENV = {
     "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN",
     "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_HOST", "GROQ_API_KEY", "GEMINI_API_KEY",
     "ANTHROPIC_API_KEY", "TYPESAFE_API_KEY",
+    # settings, not services: the connection budget (data.pool), the disk warning, the staff sign-in list
+    "DB_POOL_MIN", "DB_POOL_MAX", "DB_STORE_POOL_MAX", "DB_DISK_LIMIT_MB", "STAFF_EMAILS",
 }
 
 

@@ -30,7 +30,7 @@ def main(argv=sys.argv[1:]):
 
     tenant, principals = argv[0], argv[1:]
 
-    def connect():  # prepare_threshold=0: Neon's pooled endpoint is a transaction pooler
+    def connect():  # prepare_threshold=0: safe behind a transaction pooler (Neon's -pooler host)
         return psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, prepare_threshold=0)
     for principal in principals:
         seed(connect, tenant, principal)

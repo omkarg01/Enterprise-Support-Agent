@@ -34,17 +34,15 @@ class Services:
 
 
 def build_services():  # pragma: no cover - needs a running database
-    import psycopg
-
     from channels.identity.oidc import MockIdP
+    from data.pool import pool
     from hitl.approval import CONSOLE_CLIENT, Desk, StaffCredential, staff_verifier
     from hitl.handoff import Handoffs
     from hitl.queues import Queues
     from safety.authz.cedar import Authorizer
     from tools.validation.approvals import ApprovalGate
 
-    def connect():
-        return psycopg.connect(os.environ["DATABASE_URL"], autocommit=True)
+    connect = pool(os.environ["DATABASE_URL"], "console").connection  # this process's own, at most 2
     tenant_id = os.environ.get("CONSOLE_TENANT", "t_us")
     idp = MockIdP()  # development only: stands in for the SSO redirect
 

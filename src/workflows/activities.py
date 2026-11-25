@@ -55,6 +55,12 @@ class TurnActivities:
         return TurnOutcome(stage=state.get("stage"), checkpoint_id=str(version))
 
 
+# Turns run at once in this process. Each holds a main-pool connection only for its short reads and writes
+# between model calls; see the connection budget in channels.api.app.
+ACTIVITIES = 4
+
+
 def worker(client, activities, task_queue=TASK_QUEUE):
     return Worker(client, task_queue=task_queue, workflows=[TicketWorkflow], activities=[activities.run_turn],
-                  activity_executor=ThreadPoolExecutor(max_workers=8))
+                  activity_executor=ThreadPoolExecutor(max_workers=ACTIVITIES),
+                  max_concurrent_activities=ACTIVITIES)

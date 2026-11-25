@@ -1,9 +1,10 @@
 # The VM's layer over deploy/compose.yaml (AC-15; DECISION-2744aaec):
 #   APP_IMAGE=support-agent-app:<commit> docker compose -f deploy/compose.yaml -f deploy/vm/compose.vm.yaml \
 #     --env-file .env up -d
-# deploy/vm/release.py sets APP_IMAGE and APP_REVISION. Postgres is Neon (DATABASE_URL), so the local one only
-# starts with --profile local-postgres. The api is the one port open to the internet (plain HTTP on the
-# public IP); the backbone stays on 127.0.0.1 and is reached by service name inside the compose network.
+# deploy/vm/release.py sets APP_IMAGE and APP_REVISION. Postgres is managed (DATABASE_URL: Aiven,
+# docs/aiven.md), so the local one only starts with --profile local-postgres. The api is the one port open to
+# the internet (plain HTTP on the public IP; the Vercel frontend needs it, docs/aiven.md#network); the backbone
+# stays on 127.0.0.1 and is reached by service name inside the compose network.
 services:
   postgres:
     profiles: ["local-postgres"]

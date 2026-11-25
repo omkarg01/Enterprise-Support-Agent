@@ -1,6 +1,7 @@
 // The demo staff console (/staffs; the /v1/staff API, channels.api.staff): its shapes and calls, and the
 // filtering, sorting, paging and counting its pages share. Everything but staffApi is pure.
-// NO sign-in: the API is open to anyone (register S20). It exists to show how a staff side would feel.
+// Sign-in: the one-time email code (channels.identity) under STAFF_SIGNIN_TENANT; the API lets only the emails
+// in its STAFF_EMAILS in (channels.api.staff). The token lives in sessionStorage, like the portal's.
 import type { Service, ServiceActivity } from "./services.ts";
 import type { Ticket, TicketEvent, TicketStatus } from "./tickets.ts";
 
@@ -65,18 +66,40 @@ export class StaffError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
+export const STAFF_SIGNIN_TENANT = "t_us";
+export const SIGNED_OUT = "support-agent:staff-signed-out";  // window event: the token was refused
+const TOKEN_KEY = "support-agent:staff:token";
+export const staffToken = {
+  read(): string | null {
+    try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+  },
+  write(token: string | null) {
+    try { if (token) sessionStorage.setItem(TOKEN_KEY, token); else sessionStorage.removeItem(TOKEN_KEY); } catch { /* private mode */ }
+  },
+};
+
 async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  const token = staffToken.read();
   const reply = await fetch(`/v1/staff${path}`, {
     method, cache: "no-store", body: body === undefined ? undefined : JSON.stringify(body),
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
   const data = await reply.json().catch(() => ({}));
-  if (!reply.ok) throw new StaffError(reply.status, typeof data.detail === "string" ? data.detail : `HTTP ${reply.status}`);
+  const detail = typeof data.detail === "string" ? data.detail : `HTTP ${reply.status}`;
+  if (reply.status === 401 || reply.status === 403) {  // expired session or not on the staff list
+    staffToken.write(null);
+    window.dispatchEvent(new CustomEvent(SIGNED_OUT, { detail }));
+  }
+  if (!reply.ok) throw new StaffError(reply.status, detail);
   return data as T;
 }
 
 const enc = encodeURIComponent;
 export const staffApi = {
+  overview: () => call<{ tickets: StaffTicket[]; services: StaffService[]; activity: Activity[] }>("GET", "/overview"),
   tickets: () => call<{ tickets: StaffTicket[] }>("GET", "/tickets").then((d) => d.tickets),
   ticket: (id: string) => call<StaffTicket>("GET", `/tickets/${enc(id)}`),
   move: (id: string, status: TicketStatus, reason = "", credit = false) =>

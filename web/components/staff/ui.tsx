@@ -3,9 +3,13 @@
 // bar with tabs instead of the dark rail, slate and indigo instead of teal, dense tables instead of cards.
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from "react";
 
+import { ChatClient, readClaims } from "@/lib/chat-client.ts";
+
+import { pollWhileVisible } from "@/lib/poll.ts";
 import { statusLabel as serviceLabel } from "@/lib/services.ts";
+import { SIGNED_OUT, STAFF_SIGNIN_TENANT, staffToken } from "@/lib/staff.ts";
 import { categoryLabel, statusLabel, teamLabel } from "@/lib/tickets.ts";
 
 const TABS = [
@@ -17,14 +21,30 @@ const TABS = [
   { href: "/staffs/feedback", label: "Feedback" },
 ];
 
+// Nothing of the console renders until a staff member has signed in; a refused token (expired, or an email
+// not on the API's STAFF_EMAILS list) signs out and shows why.
 export function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const current = (href: string) => href === "/staffs" ? path === "/staffs" : path.startsWith(href);
+  const [token, setToken] = useState<string | null | undefined>(undefined);
+  const [refused, setRefused] = useState<string | null>(null);
+  useEffect(() => {
+    setToken(staffToken.read());
+    const out = (event: Event) => { setToken(null); setRefused((event as CustomEvent<string>).detail ?? null); };
+    window.addEventListener(SIGNED_OUT, out);
+    return () => window.removeEventListener(SIGNED_OUT, out);
+  }, []);
+  if (token === undefined) return null;
+  if (!token) return <StaffSignIn refused={refused} onSignedIn={(t) => { staffToken.write(t); setRefused(null); setToken(t); }} />;
+  const signOut = () => {
+    const client = new ChatClient();
+    client.token = token;
+    client.logout().catch(() => {});  // ends the session server-side; signed out here either way
+    staffToken.write(null);
+    setToken(null);
+  };
   return (
     <div className="min-h-dvh bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <p role="note" className="bg-amber-100 px-4 py-1.5 text-center text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-        Demo console: no sign-in. Anyone with this link sees every customer&apos;s data and can change it.
-      </p>
       <header className="border-b border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 pt-3">
           <Link href="/staffs" className="flex items-center gap-2 pb-3 font-semibold tracking-tight">
@@ -41,7 +61,10 @@ export function Shell({ children }: { children: ReactNode }) {
               </Link>
             ))}
           </nav>
-          <span className="ml-auto hidden pb-3 text-xs text-slate-500 sm:block dark:text-slate-400">Signed in as demo staff</span>
+          <span className="ml-auto flex items-center gap-3 pb-3 text-xs text-slate-500 dark:text-slate-400">
+            <span className="hidden sm:inline">Signed in as {readClaims(token)?.sub}</span>
+            <button type="button" onClick={signOut} className="font-medium text-indigo-700 hover:underline dark:text-indigo-300">Sign out</button>
+          </span>
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
@@ -144,8 +167,8 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   );
 }
 
-// Loads once and on reload(); with pollMs, also every pollMs while the tab is visible, so a forgotten tab
-// does not keep the database (Neon's free compute) awake.
+// Loads once and on reload(); with pollMs, also every pollMs while the tab is visible (lib/poll.ts: hidden
+// tabs do not poll, failures back off), so a forgotten tab does not keep the API and database busy.
 export function useLoad<T>(key: string, load: () => Promise<T>, pollMs = 0) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -154,13 +177,11 @@ export function useLoad<T>(key: string, load: () => Promise<T>, pollMs = 0) {
     let live = true;
     const run = () => load()
       .then((value) => { if (live) { setData(value); setError(null); } })
-      .catch((e: Error) => { if (live) setError(e.message); });
-    run();
+      .catch((e: Error) => { if (live) setError(e.message); throw e; });
+    run().catch(() => {});
     if (!pollMs) return () => { live = false; };
-    const tick = () => { if (!document.hidden) run(); };
-    const timer = setInterval(tick, pollMs);
-    document.addEventListener("visibilitychange", tick);
-    return () => { live = false; clearInterval(timer); document.removeEventListener("visibilitychange", tick); };
+    const stop = pollWhileVisible(run, pollMs);
+    return () => { live = false; stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, round, pollMs]);
   return { data, error, reload: () => setRound((r) => r + 1) };
@@ -168,4 +189,46 @@ export function useLoad<T>(key: string, load: () => Promise<T>, pollMs = 0) {
 
 export function Loading({ error }: { error: string | null }) {
   return error ? <Problem>Could not load this: {error}</Problem> : <p className="text-sm text-slate-500">Loading…</p>;
+}
+
+function StaffSignIn({ refused, onSignedIn }: { refused: string | null; onSignedIn: (token: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const client = useState(() => new ChatClient())[0];
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      if (!challenge) setChallenge(await client.startOtp(STAFF_SIGNIN_TENANT, email.trim()));
+      else onSignedIn((await client.verifyOtp(STAFF_SIGNIN_TENANT, challenge, code.trim()))!);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <main className="grid min-h-dvh place-items-center bg-slate-100 px-4 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <form onSubmit={submit} className={`${panel} w-full max-w-sm space-y-3 p-6`} aria-label="Staff sign-in">
+        <h1 className="text-lg font-semibold">Staff console sign-in</h1>
+        {refused && <p role="alert" className="text-sm text-red-700 dark:text-red-300">Signed out: {refused}</p>}
+        {!challenge ? (
+          <label className="block text-sm">Work email
+            <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className={`${input} mt-1 w-full`} />
+          </label>
+        ) : (
+          <label className="block text-sm">The 6-digit code sent to {email}
+            <input inputMode="numeric" pattern="[0-9]{6}" required autoComplete="one-time-code" value={code}
+              onChange={(e) => setCode(e.target.value)} className={`${input} mt-1 w-full`} />
+          </label>
+        )}
+        {error && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{error}</p>}
+        <Button tone="primary" type="submit" disabled={busy} className="w-full">{challenge ? "Sign in" : "Email me a code"}</Button>
+      </form>
+    </main>
+  );
 }

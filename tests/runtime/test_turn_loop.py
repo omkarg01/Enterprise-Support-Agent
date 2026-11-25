@@ -528,8 +528,9 @@ def test_the_app_refuses_header_sign_in():
 
 
 def test_the_case_state_store_survives_its_connections_being_dropped(stack):
-    """Neon closes idle connections when its compute suspends; the pool checks each one before use."""
-    store = production.store(DSN, max_size=2)
+    """A restart or power-off (Aiven free) or a suspend (Neon) kills idle connections; the pool checks each one
+    before use."""
+    store = production.store(DSN)  # the small "store" pool: at most DB_STORE_POOL_MAX (2)
     assert store.save("t_us", "c-drop", {"stage": "TRIAGED"}, 0) == 1
     psql(DB, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() "
              "AND pid <> pg_backend_pid()")

@@ -7,15 +7,16 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import type { ChatClient } from "@/lib/chat-client.ts";
+import { pollWhileVisible } from "@/lib/poll.ts";
 import {
   activityLabel, ago, busy, doneBy, kindLabel, lastAction, offerOf, statusLabel, tone,
   type Service, type ServiceCard, type Services,
 } from "@/lib/services.ts";
 import { Icon } from "./icons.tsx";
 
-// ponytail: polling; an SSE feed when many customers watch at once. Slow, and skipped while the tab is
-// hidden, so an open tab does not keep the database (Neon's free compute) awake.
-const POLL_MS = 10_000;
+// ponytail: polling; an SSE feed when many customers watch at once. Every 30 s, skipped while the tab is
+// hidden and backing off on failure (lib/poll.ts), so an open tab does not keep the API and database busy.
+const POLL_MS = 30_000;
 const TONES = {
   good: "border-ok/40 bg-ok-soft text-ok",
   busy: "border-warn-line bg-warn-bg text-warn-ink",
@@ -85,12 +86,10 @@ export function ServicesView({ client, signedIn }: { client: ChatClient | null; 
     let live = true;
     const load = () => client.services()
       .then((value) => { if (live) { setData(value); setFailed(false); } })
-      .catch(() => live && setFailed(true));
-    const tick = () => { if (!document.hidden) load(); };
-    load();
-    const timer = setInterval(tick, POLL_MS);
-    document.addEventListener("visibilitychange", tick);
-    return () => { live = false; clearInterval(timer); document.removeEventListener("visibilitychange", tick); };
+      .catch((error) => { if (live) setFailed(true); throw error; });
+    load().catch(() => {});
+    const stop = pollWhileVisible(load, POLL_MS);
+    return () => { live = false; stop(); };
   }, [client, signedIn]);
 
   if (!signedIn) return <SignInFirst />;

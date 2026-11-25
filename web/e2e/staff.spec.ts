@@ -1,6 +1,7 @@
 // The demo staff console in a real browser with /v1/staff stubbed: the Overview counts, Tickets with a filter,
 // one ticket's internal note, reply and refund approval (posting credit), Customers, a service stopped from
-// Services, and the empty Hand-offs queue. Under the production Content-Security-Policy.
+// Services, and the empty Hand-offs queue. Under the production Content-Security-Policy. Signed in already: a
+// staff token in sessionStorage (the API, stubbed here, is what checks it).
 import { expect, test, type Page } from "@playwright/test";
 
 const at = "2026-11-18T10:00:00Z";
@@ -19,10 +20,20 @@ async function stub(page: Page) {
   const vpn = ticket(8, { status: "in_review", category: "technical", subject: "VPN drops", invoice_id: null,
     amount_cents: null, currency: null, queue: "queue_technical", tenant_id: "t_eu", principal_id: "greta@globex.test" });
   let worker = "running";
+  const services = () => [
+    { service_id: "svc-sam-2", name: "batch-worker-02", kind: "server", region: "eu-central-1", status: worker,
+      replicas: null, updated_at: at, tenant_id: "t_us", principal_id: "sam@acme.test" },
+    { service_id: "svc-sam-4", name: "checkout-worker", kind: "app", region: "eu-central-1", status: "running",
+      replicas: 2, updated_at: at, tenant_id: "t_us", principal_id: "sam@acme.test" }];
+  const activity = [{ type: "ticket", at, kind: "confirmed", actor: "sam@acme.test", text: "", visibility: "customer",
+    ticket_id: "TKT-00007", principal_id: "sam@acme.test", tenant_id: "t_us" }];
+  const claims = btoa(JSON.stringify({ sub: "lead@nimbus.example", tid: "t_us", tier: "T1_VERIFIED", exp: 4102444800 }));
+  await page.addInitScript((token) => sessionStorage.setItem("support-agent:staff:token", token), `x.${claims}.y`);
   await page.route("**/v1/staff/**", async (route) => {
     const url = new URL(route.request().url()).pathname.replace("/v1/staff", "");
     const body = route.request().postDataJSON();
     if (route.request().method() === "POST") posts.push({ url, body });
+    if (url === "/overview") return route.fulfill({ json: { tickets: [refund, vpn], services: services(), activity } });
     if (url === "/tickets") return route.fulfill({ json: { tickets: [refund, vpn] } });
     if (url === "/tickets/TKT-00007") return route.fulfill({ json: { ...refund, events } });
     if (url === "/tickets/TKT-00007/notes") {
@@ -39,18 +50,12 @@ async function stub(page: Page) {
         since: "2025-01-01", last_seen: at, online: true, open_tickets: 1, tickets: 1 },
       { tenant_id: "t_eu", principal_id: "greta@globex.test", company: "Demo Co", plan: "Business", region: "eu-central",
         since: "2025-01-01", last_seen: null, online: false, open_tickets: 1, tickets: 1 }] } });
-    if (url === "/services") return route.fulfill({ json: { services: [
-      { service_id: "svc-sam-2", name: "batch-worker-02", kind: "server", region: "eu-central-1", status: worker,
-        replicas: null, updated_at: at, tenant_id: "t_us", principal_id: "sam@acme.test" },
-      { service_id: "svc-sam-4", name: "checkout-worker", kind: "app", region: "eu-central-1", status: "running",
-        replicas: 2, updated_at: at, tenant_id: "t_us", principal_id: "sam@acme.test" }] } });
+    if (url === "/services") return route.fulfill({ json: { services: services() } });
     if (url === "/services/t_us/svc-sam-2/actions") {
       worker = "stopping";
       return route.fulfill({ json: { service_id: "svc-sam-2", status: "stopping" } });
     }
-    if (url === "/activity") return route.fulfill({ json: { activity: [
-      { type: "ticket", at, kind: "confirmed", actor: "sam@acme.test", text: "", visibility: "customer",
-        ticket_id: "TKT-00007", principal_id: "sam@acme.test", tenant_id: "t_us" }] } });
+    if (url === "/activity") return route.fulfill({ json: { activity } });
     if (url === "/handoffs") return route.fulfill({ json: { handoffs: [] } });
     return route.fulfill({ status: 404, json: { detail: "not stubbed" } });
   });
@@ -67,7 +72,7 @@ test("staff work a refund ticket, look up a customer and stop a service", async 
   const posts = await stub(page);
 
   await page.goto("/staffs/");
-  await expect(page.getByText("Demo console: no sign-in")).toBeVisible();
+  await expect(page.getByText("Signed in as lead@nimbus.example")).toBeVisible();
   await expect(page.getByRole("link", { name: /Open\s*1/ })).toBeVisible();
   await expect(page.getByRole("region", { name: "Open work by team" })).toContainText("Billing team");
   await shot(page, "overview");
@@ -115,4 +120,15 @@ test("staff work a refund ticket, look up a customer and stop a service", async 
   await page.getByRole("navigation", { name: "Staff console" }).getByRole("link", { name: "Hand-offs" }).click();
   await expect(page.getByText("No hand-offs waiting")).toBeVisible();
   expect(errors).toEqual([]); // includes Content-Security-Policy violations
+});
+
+test("the console asks for a staff sign-in and shows why a token was refused", async ({ page }) => {
+  await page.route("**/v1/staff/**", (route) => route.fulfill({ status: 403, json: { detail: "staff only" } }));
+  await page.goto("/staffs/");
+  await expect(page.getByRole("form", { name: "Staff sign-in" })).toBeVisible();
+  await expect(page.getByLabel("Work email")).toBeVisible();
+  const claims = btoa(JSON.stringify({ sub: "sam@acme.test", tid: "t_us", tier: "T1_VERIFIED", exp: 4102444800 }));
+  await page.evaluate((token) => sessionStorage.setItem("support-agent:staff:token", token), `x.${claims}.y`);
+  await page.reload();
+  await expect(page.getByRole("alert")).toContainText("Signed out: staff only");
 });

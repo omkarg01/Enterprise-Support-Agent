@@ -164,8 +164,8 @@ export class ChatClient {
 
   // Calls onEvent for every event; when the stream drops it reconnects with Last-Event-ID so missed events
   // are replayed. Stops when `signal` aborts or the server refuses (4xx). A hidden tab waits to be shown
-  // before it reconnects: the server ends each stream after a few minutes, so a forgotten tab stops
-  // polling the database (Neon's free compute only sleeps when nothing queries it).
+  // before it reconnects: the server ends each stream after a few minutes, so a forgotten tab stops holding
+  // a stream (the server wakes streams by LISTEN/NOTIFY and reads the database every 10 s as a fallback).
   async listen(conversationId: string, onEvent: (event: StreamEvent) => void,
     { signal, retryMs = 1000 }: { signal?: AbortSignal; retryMs?: number } = {}) {
     const url = `${this.baseUrl}${conversation(conversationId)}/events`;

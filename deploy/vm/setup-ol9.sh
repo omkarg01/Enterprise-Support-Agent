@@ -33,7 +33,7 @@ echo "SELinux: $(getenforce 2>/dev/null || echo unknown)"
 if [[ ! -f .env ]]; then
   cp .env.example .env
   chmod 600 .env
-  echo "Created .env from .env.example: fill it in (DATABASE_URL = the Neon connection string), then rerun." >&2
+  echo "Created .env from .env.example: fill it in (DATABASE_URL = the managed Postgres URL, docs/aiven.md), then rerun." >&2
   exit 1
 fi
 chmod 600 .env

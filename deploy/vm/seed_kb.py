@@ -90,7 +90,7 @@ def main():
     ollama = os.environ.get("OLLAMA_URL") or ("http://ollama:11434" if Path("/.dockerenv").exists()
                                               else "http://127.0.0.1:11434")
     embed = ollama_embed(ollama, lock["model"])
-    # prepare_threshold=0: Neon's pooled endpoint is a transaction pooler
+    # prepare_threshold=0: safe behind a transaction pooler (Neon's -pooler host)
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True, prepare_threshold=0) as conn:
         print(json.dumps(seed(client, embed, lock["dimensions"], conn), indent=1), flush=True)
 

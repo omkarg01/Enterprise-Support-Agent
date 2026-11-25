@@ -15,6 +15,12 @@ RP-D15, as the v1 profile does them: one VM, daily dumps rather than WAL streami
   shredded keys back) before anything uses it.
 - drill(): restore all three, compare the migrations and row counts with the manifest, replay the erasures,
   verify that nothing of an erased user is left, and report.
+
+With DATABASE_URL set (a managed server: Aiven, Neon), `daily` dumps that server's databases (the URL's,
+VAULT_DATABASE, KEYS_DATABASE) with this host's pg_dump and psql over TLS (deploy/vm/migrate.py's PG*
+variables; pg_dump must be at least the server's major version), and `drill` restores those dumps into the
+LOCAL compose Postgres (docker compose --profile local-postgres up -d postgres): three restored copies would
+not fit Aiven free's 1 GB disk, so the drill refuses a remote PSQL.
 """
 
 import argparse
@@ -30,7 +36,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from data.erasure import BACKUP_RETENTION_DAYS, ErasureRequest
-from data.migrate import psql
+from data.migrate import DEFAULT_PSQL, psql
 
 DATABASES = (("agent", "main"), ("agent_vault", "vault"), ("agent_keys", "keys"))
 DEFAULT_TOOLS = "docker exec -i support-agent-postgres-1"   # where pg_dump / pg_restore run
@@ -44,7 +50,8 @@ class BackupError(RuntimeError):
 
 
 def _tool(name, *args, data=None):
-    command = [*shlex.split(os.environ.get("PG_TOOLS", DEFAULT_TOOLS)), name, "-U", "agent", *args]
+    command = [*shlex.split(os.environ.get("PG_TOOLS", DEFAULT_TOOLS)), name,
+               "-U", os.environ.get("PGUSER", "agent"), *args]
     result = subprocess.run(command, input=data, capture_output=True)
     if result.returncode != 0:
         raise BackupError(f"{name} failed: {result.stderr.decode(errors='replace').strip()[:500]}")
@@ -207,8 +214,20 @@ def main(argv=None):  # pragma: no cover - runs on the VM with R2 credentials
 
     from data.storage import r2_store_from_secrets
     store = r2_store_from_secrets()
+    databases = DATABASES
+    if os.environ.get("DATABASE_URL"):
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vm"))
+        from migrate import psql_environment  # deploy/vm/migrate.py
+
+        main_db, env = psql_environment(os.environ["DATABASE_URL"])
+        databases = ((main_db, "main"), (os.environ.get("VAULT_DATABASE", "agent_vault"), "vault"),
+                     (os.environ.get("KEYS_DATABASE", "agent_keys"), "keys"))
+        if action == "daily":
+            os.environ.update(env)
+            os.environ.setdefault("PSQL", "psql")
+            os.environ.setdefault("PG_TOOLS", "")
     if action == "daily":
-        for database, _ in DATABASES:
+        for database, _ in databases:
             print("dumped", dump(store, database))
         print("pruned", prune(store))
         return 0
@@ -219,15 +238,25 @@ def main(argv=None):  # pragma: no cover - runs on the VM with R2 credentials
     from data.keys import KeyStore, OpenBaoTransit
     from memory.lifecycle.inventory import ErasureActivities
 
+    remote = os.environ.get("PGHOST") not in (None, "", "127.0.0.1", "localhost")
+    if os.environ.get("PSQL", DEFAULT_PSQL) != DEFAULT_PSQL or remote:
+        raise SystemExit("the drill restores into the local compose Postgres only (unset PSQL and PGHOST)")
+    opened = []  # the drill's key-store connections, closed when it ends
+
     def activities_for(names):
         base = os.environ["RESTORE_DSN_BASE"]  # e.g. postgresql://agent:<password>@127.0.0.1:5432/
         transit = OpenBaoTransit(OpenBao())
+        opened.append(psycopg.connect(base + names["keys"], autocommit=True))
 
         def keys():
-            return KeyStore(psycopg.connect(base + names["keys"], autocommit=True), transit)
+            return KeyStore(opened[-1], transit)
         # no Temporal client and no receipts: the replay only purges and verifies the restored copies
         return ErasureActivities(base + names["main"], base + names["vault"], keys, None, b"restore-replay")
-    report = drill(store, activities_for)
+    try:
+        report = drill(store, activities_for, databases)
+    finally:
+        for conn in opened:
+            conn.close()
     print(json.dumps({"ok": report.ok, "restored": report.restored, "mismatches": report.mismatches,
                       "erasures_replayed": report.erasures_replayed, "residue": report.residue,
                       "seconds": round(report.seconds, 1)}, indent=2))

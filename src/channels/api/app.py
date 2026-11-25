@@ -19,21 +19,23 @@ headers, and only when SUPPORT_AGENT_DEV_AUTH=1; otherwise every request is 401.
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import anyio.to_thread
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from psycopg_pool import ConnectionPool
 
 from channels import sessions
 from channels.api import trace
 from channels.api.envelope import EventType, FeedbackRequest, Principal, TurnAction, TurnRequest
 from channels.api.turns import events_after, last_event_id, submit_turn
-from data.events import EventLog, rebuild_from_transcript
+from data import pool as pools
+from data.events import EventLog, listener, rebuild_from_transcript
 from data.keys.envelope import TENANT_ID
 from hitl.tickets import Tickets, number_id
 from improvement.feedback import AlreadyRated
@@ -43,7 +45,14 @@ from tools import services
 SAFE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 TICKET = re.compile(r"^TKT-[0-9]{5,}$")
 ACTION = re.compile(r"^ACT-[0-9]{5,}$")
-WORK = ThreadPoolExecutor(max_workers=256)  # polls and posts; streams themselves stay on the event loop (B12)
+# Connection budget of one API process (data.pool): DB_POOL_MAX 8 + DB_STORE_POOL_MAX 2 + 1 LISTEN = 11 <= 12,
+# enforced by the pools whatever the thread counts. The threads below only bound how many callers can queue
+# for the 8 main connections: WORK 16 (async routes' DB work and sign-in checks) + SYNC_THREADS 8 (FastAPI's
+# sync routes: staff, identity, /healthz) + workflows.activities.ACTIVITIES 4 (turns) = 28 callers at most,
+# each holding a connection for a short query; one that waits 10 s gets PoolTimeout instead of piling up.
+# An open stream holds no thread and no connection while it waits (B12).
+WORK = ThreadPoolExecutor(max_workers=16)
+SYNC_THREADS = 8
 
 
 def dev_header_auth(request):
@@ -74,13 +83,18 @@ def sse(event_id, event_type, data):
 
 def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator, transcript=None,
                poll_seconds=0.05, heartbeat_seconds=15.0, stream_seconds=None, feedback=None):
-    """feedback: an improvement.feedback.Feedback for the thumbs routes (they answer 503 without one)."""
-    app = FastAPI(title="Support Agent API")
-    pool = ConnectionPool(dsn or database_url(), min_size=2, max_size=64, open=True,
-                          kwargs={"autocommit": True})
+    """feedback: an improvement.feedback.Feedback for the thumbs routes (they answer 503 without one).
+    poll_seconds: how often an open stream reads the log when no notification woke it, the fallback for one
+    lost while the LISTEN connection reconnects (data.events.Listener)."""
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        anyio.to_thread.current_default_thread_limiter().total_tokens = SYNC_THREADS  # FastAPI's sync routes
+        yield
 
-    def connect():
-        return pool.connection()
+    app = FastAPI(title="Support Agent API", lifespan=lifespan)
+    dsn = dsn or database_url()
+    connect = pools.pool(dsn).connection
+    notifications = listener(dsn)
 
     def checked(conversation_id):
         if not SAFE_ID.match(conversation_id):
@@ -90,10 +104,14 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
     async def in_pool(fn, *args):
         return await asyncio.get_running_loop().run_in_executor(WORK, fn, *args)
 
+    async def authenticated(request):
+        """authenticate() reads and touches the session in the database: off the event loop."""
+        return await in_pool(authenticate, request)
+
     @app.post("/v1/conversations/{conversation_id}/turns", status_code=202)
     async def submit(conversation_id: str, body: TurnRequest, request: Request,
                      idempotency_key: str | None = Header(default=None)):
-        principal = authenticate(request)
+        principal = await authenticated(request)
         if not idempotency_key or not SAFE_ID.match(idempotency_key):
             raise HTTPException(400, "an Idempotency-Key header (1-128 safe characters) is required")
         conversation_id = checked(conversation_id)
@@ -105,8 +123,8 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
         turn_id, created = await in_pool(go)
         return {"turn_id": turn_id, "status": "QUEUED" if created else "ALREADY_QUEUED"}
 
-    def signed_in(request):
-        principal = authenticate(request)
+    async def signed_in(request):
+        principal = await authenticated(request)
         if principal.assurance_tier == "T0_ANON":
             raise HTTPException(403, "sign in to raise and see tickets")
         return principal
@@ -114,7 +132,7 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
     @app.post("/v1/conversations/{conversation_id}/tickets/{proposal}/confirm", status_code=202)
     async def confirm(conversation_id: str, proposal: str, request: Request,
                       idempotency_key: str | None = Header(default=None)):
-        principal = signed_in(request)
+        principal = await signed_in(request)
         if not idempotency_key or not SAFE_ID.match(idempotency_key):
             raise HTTPException(400, "an Idempotency-Key header (1-128 safe characters) is required")
         conversation_id = checked(conversation_id)
@@ -133,7 +151,7 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
     @app.post("/v1/conversations/{conversation_id}/actions/{proposal}/confirm", status_code=202)
     async def confirm_action(conversation_id: str, proposal: str, request: Request,
                              idempotency_key: str | None = Header(default=None)):
-        principal = signed_in(request)
+        principal = await signed_in(request)
         if not idempotency_key or not SAFE_ID.match(idempotency_key):
             raise HTTPException(400, "an Idempotency-Key header (1-128 safe characters) is required")
         conversation_id = checked(conversation_id)
@@ -153,14 +171,14 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
     async def my_services(request: Request):
         """The Services tab: the signed-in customer's servers and apps (settled status) and what the agent
         did on them."""
-        principal = signed_in(request)
+        principal = await signed_in(request)
         own = await in_pool(services.services, connect, principal.tenant_id, principal.principal_id)
         done = await in_pool(services.activity, connect, principal.tenant_id, principal.principal_id)
         return {"services": own, "activity": done}
 
     @app.get("/v1/conversations")
     async def history(request: Request):
-        principal = authenticate(request)
+        principal = await authenticated(request)
         def find():
             with connect() as conn:
                 return sessions.history(conn, principal.tenant_id, principal.principal_id)
@@ -168,13 +186,13 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
 
     @app.get("/v1/tickets")
     async def my_tickets(request: Request):
-        principal = signed_in(request)
+        principal = await signed_in(request)
         rows = await in_pool(Tickets(connect).list_for, principal.tenant_id, principal.principal_id)
         return {"tickets": [ticket.card() for ticket in rows]}
 
     @app.get("/v1/tickets/{number}")
     async def my_ticket(number: str, request: Request):
-        principal = signed_in(request)
+        principal = await signed_in(request)
         ticket_id = number_id(number) if TICKET.match(number) else None
         ticket = ticket_id and await in_pool(Tickets(connect).get, principal.tenant_id,
                                              principal.principal_id, ticket_id)
@@ -186,7 +204,7 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
 
     @app.get("/v1/conversations/{conversation_id}/decisions")
     async def decisions(conversation_id: str, request: Request, turn_id: str | None = None):
-        principal = authenticate(request)
+        principal = await authenticated(request)
         conversation_id = checked(conversation_id)
         if turn_id is not None and not SAFE_ID.match(turn_id):
             raise HTTPException(422, "invalid turn id")
@@ -194,7 +212,8 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
 
     @app.get("/v1/conversations/{conversation_id}/turns/{turn_id}/trace")
     async def turn_trace(conversation_id: str, turn_id: str, request: Request):
-        principal = authenticate(request)  # with sign-in, this also checks the conversation is the caller's
+        # with sign-in, this also checks the conversation is the caller's
+        principal = await authenticated(request)
         conversation_id = checked(conversation_id)
         if not SAFE_ID.match(turn_id):
             raise HTTPException(422, "invalid turn id")
@@ -211,7 +230,8 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
 
     @app.post("/v1/conversations/{conversation_id}/turns/{turn_id}/feedback", status_code=201)
     async def rate(conversation_id: str, turn_id: str, body: FeedbackRequest, request: Request):
-        principal = authenticate(request)  # with sign-in, this also checks the conversation is the caller's
+        # with sign-in, this also checks the conversation is the caller's
+        principal = await authenticated(request)
         conversation_id = checked(conversation_id)
         if not SAFE_ID.match(turn_id):
             raise HTTPException(422, "invalid turn id")
@@ -235,7 +255,7 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
 
     @app.get("/v1/conversations/{conversation_id}/feedback")
     async def my_votes(conversation_id: str, request: Request):
-        principal = authenticate(request)
+        principal = await authenticated(request)
         conversation_id = checked(conversation_id)
         if feedback is None:
             return {"votes": {}}
@@ -245,7 +265,7 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
     @app.get("/v1/conversations/{conversation_id}/events")
     async def events(conversation_id: str, request: Request, last_event_id_header: str | None = Header(
             default=None, alias="Last-Event-ID")):
-        principal = authenticate(request)
+        principal = await authenticated(request)
         conversation_id = checked(conversation_id)
         cursor = None
         if last_event_id_header is None:
@@ -282,19 +302,31 @@ def create_app(dsn=None, authenticate=dev_header_auth, dispatch=no_orchestrator,
             with connect() as conn:
                 return events_after(conn, tenant_id, conversation_id, cursor)
 
-        deadline = None if stream_seconds is None else time.monotonic() + stream_seconds
-        beat = time.monotonic()
-        while deadline is None or time.monotonic() < deadline:
-            batch = await in_pool(poll)
-            for event in batch:
-                yield sse(*event)
-                cursor, beat = int(event[0]), time.monotonic()
-            if time.monotonic() - beat >= heartbeat_seconds:
-                yield ": keep-alive\n\n"
-                beat = time.monotonic()
-            wait = poll_seconds
-            if deadline is not None:
-                wait = min(wait, max(0.01, deadline - time.monotonic()))
-            await asyncio.sleep(wait)
+        # Read once now (catch-up), then again only when a notification for this conversation wakes the stream
+        # or poll_seconds pass without one. The wake-up is cleared before each read, so an event appended
+        # during a read wakes the next wait at once.
+        woken = asyncio.Event()
+        notifications.subscribe(conversation_id, woken, asyncio.get_running_loop())
+        try:
+            deadline = None if stream_seconds is None else time.monotonic() + stream_seconds
+            beat = time.monotonic()
+            while deadline is None or time.monotonic() < deadline:
+                woken.clear()
+                batch = await in_pool(poll)
+                for event in batch:
+                    yield sse(*event)
+                    cursor, beat = int(event[0]), time.monotonic()
+                if time.monotonic() - beat >= heartbeat_seconds:
+                    yield ": keep-alive\n\n"
+                    beat = time.monotonic()
+                wait = min(poll_seconds, max(0.01, beat + heartbeat_seconds - time.monotonic()))
+                if deadline is not None:
+                    wait = min(wait, max(0.01, deadline - time.monotonic()))
+                try:
+                    await asyncio.wait_for(woken.wait(), wait)
+                except TimeoutError:
+                    pass
+        finally:
+            notifications.unsubscribe(conversation_id, woken)
 
     return app

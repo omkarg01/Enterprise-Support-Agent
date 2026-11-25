@@ -173,7 +173,9 @@ def test_ratings_carry_the_reply_the_question_and_the_models_and_the_staff_page_
     assert s["by_model"]["gemini-2.5"]["up"] == 1
     assert s["down_by_category"]["retrieval.knowledge_gap"] >= 1
     staff = FastAPI()
-    staff.include_router(staff_router(connect, tenants=("t_us", "t_eu")))
+    lead = Principal(tenant_id="t_us", principal_id="lead", assurance_tier="T1_VERIFIED")  # signed-in staff
+    staff.include_router(staff_router(connect, lambda request: lead, tenants=("t_us", "t_eu"),
+                                      staff=frozenset({"lead"})))
     page = TestClient(staff).get("/v1/staff/feedback?days=7").json()
     assert page["summary"] == s and len(page["ratings"]) == len(rows)
     lines = []

@@ -4,7 +4,7 @@
     python -m data.migrate MAIN VAULT KEYS       # other database names
 
 SQL runs through psql. By default that is the psql inside the compose Postgres container; set PSQL to another
-command (e.g. "psql" with PGHOST/PGUSER/PGPASSWORD set) to target Neon, Supabase or a host install.
+command (e.g. "psql" with PGHOST/PGUSER/PGPASSWORD set) to target Aiven, Neon, Supabase or a host install.
 """
 
 import os

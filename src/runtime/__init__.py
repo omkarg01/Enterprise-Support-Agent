@@ -36,8 +36,6 @@ import re
 import uuid
 from dataclasses import dataclass
 
-import psycopg
-
 from agents.merge import COMPLETED, Claim, Outcome, claims_from, human, merge
 from agents.topology import (
     MAX_FINDINGS,
@@ -57,6 +55,7 @@ from core.orchestrator.decisions import JevUnavailable, Masked, mask
 from core.orchestrator.statechart import build, thread
 from core.orchestrator.triage import llm_fallback, triage_hook
 from data.events import EventLog
+from data.pool import pool
 from hitl.tickets import Tickets, number_id
 from runtime import tickets
 from safety.governance.disclosure import disclose
@@ -809,6 +808,6 @@ class TurnLoop:
 
 
 def connector(dsn):
-    def connect():
-        return psycopg.connect(dsn, autocommit=True)
-    return connect
+    """connect() for the services: `with connect() as conn` lends an autocommit connection from the
+    process's shared pool for dsn (data.pool) and returns it on exit."""
+    return pool(dsn).connection
