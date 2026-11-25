@@ -9,7 +9,7 @@
     "non_goals": [],
     "trust_boundary": "local repository",
     "created_at": "2026-10-09T16:13:56.964Z",
-    "updated_at": "2026-11-25T19:20:51.460Z"
+    "updated_at": "2026-11-25T21:10:19.293Z"
   },
   "policy": {
     "ponytail": "full",
@@ -49223,11 +49223,11 @@
     }
   },
   "checkpoint": {
-    "at": "2026-11-25T19:20:49.515Z",
+    "at": "2026-11-25T21:10:18.133Z",
     "revision": {
-      "commit": "037a6e6b06800f342fb0154536a4d634ad20aad3",
-      "dirty": true,
-      "source_hash": "79d3c6918cb72b44e7cee4c3936539d5ae6b48d9ad455cae0e6033610f67cea9"
+      "commit": "46a5daa8b44ca2032d55a609a336a5e50def2703",
+      "dirty": false,
+      "source_hash": "8e71628880b41b45ef72ce31ade0ec5a67a0cf809839023320331ae7b69f5a12"
     },
     "active_task": null,
     "next_action": "Finish defining requirement-linked tasks, then run genesis plan check."
